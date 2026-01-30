@@ -1,37 +1,28 @@
-name: add main.py
-
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   add-main:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Create file
+      - name: Configure git
         run: |
-          printf 'print("hello from copilot agent")\n' > main.py
-
-      - name: Commit and push branch
-        run: |
-          set -e
-          BRANCH=add-main-py
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout -B "$BRANCH"
+      - name: Create main.py
+        run: |
+          echo 'print("hello from copilot agent")' > main.py
+
+      - name: Commit and push
+        run: |
+          git checkout -b add-main-py || git switch add-main-py
           git add main.py
-
-          # no-op if nothing changed
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
-          git commit -m "add main.py: hello from copilot agent"
-          git push -u origin "$BRANCH"
+          git commit -m "add main.py: hello from copilot agent" || echo "no changes to commit"
+          git push --set-upstream origin add-main-py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
