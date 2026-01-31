@@ -10,6 +10,7 @@
 - RQ-007: The Configurations screen shall allow assigning licenses to configurations via drag and drop.
 - RQ-008: The app shall include sample device and license data on startup when storage is empty.
 - RQ-009: The app shall start without errors and show the GUI.
+- RQ-010: Configuration cards shall be draggable within the canvas layout.
 
 ## Non-Functional
 - RN-001: UI should provide visual feedback during drag and drop.

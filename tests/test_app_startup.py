@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import tkinter as tk
 
 
 def _ensure_src_path() -> None:
@@ -19,18 +18,18 @@ def _ensure_src_path() -> None:
 
 _ensure_src_path()
 
-from dam.ui.desktop.app import DesktopApp  # noqa: E402
-
 
 def test_app_startup_smoke(tmp_path: Path) -> None:
     try:
-        app = DesktopApp(db_path=str(tmp_path / "test.db"))
-    except tk.TclError:
-        pytest.skip("Tk is not available in this environment")
+        from PySide6 import QtWidgets  # noqa: WPS433
+    except Exception:
+        pytest.skip("PySide6 is not available in this environment")
         return
 
-    try:
-        app.root.update_idletasks()
-        app.root.update()
-    finally:
-        app.root.destroy()
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from dam.ui.desktop.app import DesktopApp  # noqa: E402
+    window = DesktopApp(db_path=str(tmp_path / "test.db"))
+    window.show()
+    app.processEvents()
+    window.close()

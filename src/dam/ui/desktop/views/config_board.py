@@ -17,13 +17,15 @@ class ConfigCard(ttk.LabelFrame):
         service: ConfigService,
         on_refresh: callable,
     ) -> None:
-        super().__init__(master, text=config.name)
+        super().__init__(master, text=config.name, style="Card.TLabelframe")
         self.config_obj = config
         self._service = service
         self._on_refresh = on_refresh
 
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(2, 4))
+        self.drag_handle = ttk.Label(header, text="⠿", style="Handle.TLabel", cursor="fleur")
+        self.drag_handle.pack(side="left", padx=(4, 2))
         ttk.Label(header, text=f"ID: {config.config_id}").pack(side="left", padx=4)
         ttk.Button(header, text="Rename", command=self._rename).pack(side="right", padx=4)
 
@@ -111,37 +113,46 @@ class ConfigBoard(ttk.Frame):
         super().__init__(master)
         self._service = service
         self._cards: Dict[int, ConfigCard] = {}
+        self._card_windows: Dict[int, int] = {}
+        self._positions: Dict[int, tuple[int, int]] = {}
+        self._dragging_id: Optional[int] = None
+        self._drag_offset: tuple[int, int] = (0, 0)
         self._on_refresh = on_refresh
 
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=8, pady=6)
         ttk.Button(toolbar, text="+ Configuration", command=self._add_config).pack(side="left")
 
-        self.canvas = tk.Canvas(self, borderwidth=0)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-        self.scrollable = ttk.Frame(self.canvas)
-        self.scrollable.bind(
-            "<Configure>",
-            lambda _: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
-        )
-
-        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable, anchor="nw")
+        self.canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0, background="#f5f7fb")
+        self.v_scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.h_scrollbar = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
+        self.canvas.configure(yscrollcommand=self.v_scrollbar.set, xscrollcommand=self.h_scrollbar.set)
 
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        self.v_scrollbar.pack(side="right", fill="y")
+        self.h_scrollbar.pack(side="bottom", fill="x")
 
     def refresh(self) -> None:
-        for child in self.scrollable.winfo_children():
-            child.destroy()
+        for window_id in self._card_windows.values():
+            self.canvas.delete(window_id)
         self._cards.clear()
+        self._card_windows.clear()
 
         configs = self._service.list_configs()
-        for config in configs:
-            card = ConfigCard(self.scrollable, config=config, service=self._service, on_refresh=self.refresh)
-            card.pack(fill="x", padx=8, pady=6)
+        for index, config in enumerate(configs):
+            card = ConfigCard(self.canvas, config=config, service=self._service, on_refresh=self.refresh)
             self._cards[config.config_id] = card
+
+            x, y = self._positions.get(config.config_id, self._default_position(index))
+            self._positions[config.config_id] = (x, y)
+            window_id = self.canvas.create_window(x, y, window=card, anchor="nw", width=360)
+            self._card_windows[config.config_id] = window_id
+
+            card.drag_handle.bind("<ButtonPress-1>", lambda event, cid=config.config_id: self._start_drag(event, cid))
+            card.drag_handle.bind("<B1-Motion>", self._on_drag)
+            card.drag_handle.bind("<ButtonRelease-1>", self._end_drag)
+
+        self._update_scrollregion()
 
         if self._on_refresh:
             self._on_refresh()
@@ -155,6 +166,43 @@ class ConfigBoard(ttk.Frame):
             self.refresh()
         except Exception as exc:  # pragma: no cover - UI fallback
             messagebox.showerror("Error", str(exc))
+
+    def _default_position(self, index: int) -> tuple[int, int]:
+        col = index % 2
+        row = index // 2
+        x = 20 + col * 400
+        y = 20 + row * 320
+        return x, y
+
+    def _start_drag(self, event: tk.Event, config_id: int) -> None:
+        self._dragging_id = config_id
+        window_id = self._card_windows.get(config_id)
+        if window_id is None:
+            return
+        coords = self.canvas.coords(window_id)
+        canvas_x = self.canvas.canvasx(event.x_root - self.canvas.winfo_rootx())
+        canvas_y = self.canvas.canvasy(event.y_root - self.canvas.winfo_rooty())
+        self._drag_offset = (int(canvas_x - coords[0]), int(canvas_y - coords[1]))
+
+    def _on_drag(self, event: tk.Event) -> None:
+        if self._dragging_id is None:
+            return
+        window_id = self._card_windows.get(self._dragging_id)
+        if window_id is None:
+            return
+        canvas_x = self.canvas.canvasx(event.x_root - self.canvas.winfo_rootx())
+        canvas_y = self.canvas.canvasy(event.y_root - self.canvas.winfo_rooty())
+        x = int(canvas_x - self._drag_offset[0])
+        y = int(canvas_y - self._drag_offset[1])
+        self.canvas.coords(window_id, x, y)
+        self._positions[self._dragging_id] = (x, y)
+        self._update_scrollregion()
+
+    def _end_drag(self, _: tk.Event) -> None:
+        self._dragging_id = None
+
+    def _update_scrollregion(self) -> None:
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def get_cards(self) -> List[ConfigCard]:
         return list(self._cards.values())

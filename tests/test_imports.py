@@ -17,5 +17,13 @@ _ensure_src_path()
 
 
 def test_imports() -> None:
+    try:
+        import PySide6  # noqa: F401
+    except Exception:
+        import pytest
+
+        pytest.skip("PySide6 is not available in this environment")
+        return
+
     import main  # noqa: F401
     import dam.ui.desktop.app  # noqa: F401

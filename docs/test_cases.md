@@ -36,3 +36,13 @@
   2. Import `dam.ui.desktop.app`.
 - Expected: No exception is raised.
 - Automated: tests/test_imports.py::test_imports
+
+## TC-005: Config card drag position
+- Purpose: Verify configuration cards can be moved within the canvas.
+- Preconditions: Tk available on environment.
+- Steps:
+  1. Create a configuration board with two configs.
+  2. Simulate a drag on Config A.
+  3. Verify the stored position changed.
+- Expected: The position for Config A updates after drag.
+- Automated: tests/test_ui_config_board_drag.py::test_config_board_drag_updates_position
