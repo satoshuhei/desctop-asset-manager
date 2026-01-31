@@ -1,37 +1,99 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
-from typing import Dict, List
+from tkinter import messagebox, ttk
+from typing import Callable, Dict, List
 
 from dam.core.domain.models import License
 from dam.core.services.asset_service import AssetService
 
 
 class LicenseListView(ttk.Frame):
-    def __init__(self, master: tk.Misc, service: AssetService) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        service: AssetService,
+        show_form: bool = True,
+        on_change: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(master)
         self._service = service
         self._items: Dict[int, License] = {}
         self._filtered_ids: List[int] = []
+        self._on_change = on_change
 
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self._on_search)
 
-        search_frame = ttk.Frame(self)
-        search_frame.pack(fill="x", padx=8, pady=6)
+        filter_frame = ttk.LabelFrame(self, text="Filters")
+        filter_frame.pack(fill="x", padx=8, pady=6)
 
-        ttk.Label(search_frame, text="Search").pack(side="left")
-        ttk.Entry(search_frame, textvariable=self.search_var).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Label(filter_frame, text="Search").grid(row=0, column=0, sticky="w", padx=6, pady=6)
+        ttk.Entry(filter_frame, textvariable=self.search_var).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=6,
+            pady=6,
+        )
+        filter_frame.columnconfigure(1, weight=1)
 
-        button_frame = ttk.Frame(self)
-        button_frame.pack(fill="x", padx=8, pady=(0, 6))
-        ttk.Button(button_frame, text="+ License", command=self._add_license).pack(side="left")
+        if show_form:
+            self._build_form()
 
-        self.listbox = tk.Listbox(self, height=20)
-        self.listbox.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        list_frame = ttk.LabelFrame(self, text="Tickets")
+        list_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        columns = ("subject", "license_key", "state")
+        self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=14, selectmode="browse")
+        self.tree.heading("subject", text="Subject")
+        self.tree.heading("license_key", text="License Key")
+        self.tree.heading("state", text="Status")
+
+        self.tree.column("subject", width=240, anchor="w")
+        self.tree.column("license_key", width=160, anchor="w")
+        self.tree.column("state", width=100, anchor="center")
+
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
         self.refresh()
+
+    def _build_form(self) -> None:
+        form_frame = ttk.LabelFrame(self, text="New License Ticket")
+        form_frame.pack(fill="x", padx=8, pady=(0, 8))
+
+        self.name_var = tk.StringVar()
+        self.license_key_var = tk.StringVar()
+        self.state_var = tk.StringVar(value="active")
+
+        ttk.Label(form_frame, text="Subject").grid(row=0, column=0, sticky="w", padx=6, pady=4)
+        ttk.Entry(form_frame, textvariable=self.name_var).grid(row=0, column=1, sticky="ew", padx=6, pady=4)
+
+        ttk.Label(form_frame, text="License Key").grid(row=0, column=2, sticky="w", padx=6, pady=4)
+        ttk.Entry(form_frame, textvariable=self.license_key_var).grid(row=0, column=3, sticky="ew", padx=6, pady=4)
+
+        ttk.Label(form_frame, text="Status").grid(row=1, column=0, sticky="w", padx=6, pady=4)
+        ttk.Combobox(
+            form_frame,
+            textvariable=self.state_var,
+            values=["active", "expired", "retired"],
+            state="readonly",
+        ).grid(row=1, column=1, sticky="ew", padx=6, pady=4)
+
+        ttk.Label(form_frame, text="Description").grid(row=2, column=0, sticky="nw", padx=6, pady=4)
+        self.note_text = tk.Text(form_frame, height=3, wrap="word")
+        self.note_text.grid(row=2, column=1, columnspan=3, sticky="ew", padx=6, pady=4)
+
+        form_frame.columnconfigure(1, weight=1)
+        form_frame.columnconfigure(3, weight=1)
+
+        button_frame = ttk.Frame(form_frame)
+        button_frame.grid(row=3, column=0, columnspan=4, sticky="e", padx=6, pady=6)
+        ttk.Button(button_frame, text="Create License", command=self._add_license).pack(side="right")
 
     def refresh(self) -> None:
         licenses = self._service.list_licenses()
@@ -40,32 +102,37 @@ class LicenseListView(ttk.Frame):
 
     def _apply_filter(self, keyword: str) -> None:
         keyword_lower = keyword.lower().strip()
-        self.listbox.delete(0, tk.END)
+        self.tree.delete(*self.tree.get_children())
         self._filtered_ids.clear()
         for license_item in self._items.values():
             label = license_item.name
             if not keyword_lower or keyword_lower in label.lower():
                 self._filtered_ids.append(license_item.license_id)
-                self.listbox.insert(tk.END, label)
+                self.tree.insert(
+                    "",
+                    "end",
+                    iid=str(license_item.license_id),
+                    values=(label, license_item.license_key, license_item.state),
+                )
 
     def _on_search(self, *_: object) -> None:
         self._apply_filter(self.search_var.get())
 
     def get_selected_license(self) -> License | None:
-        selection = self.listbox.curselection()
+        selection = self.tree.selection()
         if not selection:
             return None
-        index = selection[0]
-        license_id = self._filtered_ids[index]
+        license_id = int(selection[0])
         return self._items.get(license_id)
 
     def _add_license(self) -> None:
-        name = simpledialog.askstring("Name", "License name", parent=self)
+        name = self.name_var.get().strip()
         if not name:
+            messagebox.showerror("Error", "Subject is required")
             return
-        license_key = simpledialog.askstring("Key", "License key", parent=self) or "-"
-        state = simpledialog.askstring("State", "State (active/expired/retired)", parent=self) or "active"
-        note = simpledialog.askstring("Note", "Note", parent=self) or ""
+        license_key = self.license_key_var.get().strip() or "-"
+        state = self.state_var.get().strip() or "active"
+        note = self.note_text.get("1.0", "end").strip()
 
         try:
             self._service.add_license(
@@ -75,5 +142,11 @@ class LicenseListView(ttk.Frame):
                 note=note,
             )
             self.refresh()
+            if self._on_change:
+                self._on_change()
+            self.name_var.set("")
+            self.license_key_var.set("")
+            self.state_var.set("active")
+            self.note_text.delete("1.0", "end")
         except Exception as exc:  # pragma: no cover - UI fallback
             messagebox.showerror("Error", str(exc))

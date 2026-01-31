@@ -32,12 +32,43 @@ class DesktopApp:
         self.config_service = ConfigService(config_repo)
 
         self.drag_data: dict = {}
+        self._drag_preview: Optional[tk.Toplevel] = None
+        self._drag_preview_label: Optional[tk.Label] = None
+        self._hover_target: Optional[tk.Widget] = None
+        self._hover_target_bg: dict[tk.Widget, str] = {}
 
         self._build_ui()
+        self.root.bind("<B1-Motion>", self._on_drag_motion)
         self.root.bind("<ButtonRelease-1>", self._on_drop)
 
     def _build_ui(self) -> None:
-        paned = ttk.Panedwindow(self.root, orient=tk.HORIZONTAL)
+        main_notebook = ttk.Notebook(self.root)
+        main_notebook.pack(fill="both", expand=True)
+
+        assets_tab = ttk.Frame(main_notebook)
+        configs_tab = ttk.Frame(main_notebook)
+        main_notebook.add(assets_tab, text="Assets")
+        main_notebook.add(configs_tab, text="Configurations")
+
+        assets_notebook = ttk.Notebook(assets_tab)
+        assets_notebook.pack(fill="both", expand=True)
+
+        self.device_admin_view = DeviceListView(
+            assets_notebook,
+            self.asset_service,
+            show_form=True,
+            on_change=self._refresh_asset_views,
+        )
+        self.license_admin_view = LicenseListView(
+            assets_notebook,
+            self.asset_service,
+            show_form=True,
+            on_change=self._refresh_asset_views,
+        )
+        assets_notebook.add(self.device_admin_view, text="Devices")
+        assets_notebook.add(self.license_admin_view, text="Licenses")
+
+        paned = ttk.Panedwindow(configs_tab, orient=tk.HORIZONTAL)
         paned.pack(fill="both", expand=True)
 
         left_frame = ttk.Frame(paned, width=320)
@@ -45,21 +76,20 @@ class DesktopApp:
         paned.add(left_frame, weight=1)
         paned.add(right_frame, weight=3)
 
-        notebook = ttk.Notebook(left_frame)
-        notebook.pack(fill="both", expand=True)
+        config_assets_notebook = ttk.Notebook(left_frame)
+        config_assets_notebook.pack(fill="both", expand=True)
 
-        self.device_view = DeviceListView(notebook, self.asset_service)
-        self.license_view = LicenseListView(notebook, self.asset_service)
-        notebook.add(self.device_view, text="Devices")
-        notebook.add(self.license_view, text="Licenses")
+        self.device_view = DeviceListView(config_assets_notebook, self.asset_service, show_form=False)
+        self.license_view = LicenseListView(config_assets_notebook, self.asset_service, show_form=False)
+        config_assets_notebook.add(self.device_view, text="Devices")
+        config_assets_notebook.add(self.license_view, text="Licenses")
 
         self.config_board = ConfigBoard(right_frame, self.config_service, on_refresh=self._bind_config_card_listboxes)
         self.config_board.pack(fill="both", expand=True)
-
         self.config_board.refresh()
 
-        self.device_view.listbox.bind("<ButtonPress-1>", self._start_drag_device)
-        self.license_view.listbox.bind("<ButtonPress-1>", self._start_drag_license)
+        self.device_view.tree.bind("<ButtonPress-1>", self._start_drag_device)
+        self.license_view.tree.bind("<ButtonPress-1>", self._start_drag_license)
 
         self._bind_config_card_listboxes()
 
@@ -75,10 +105,11 @@ class DesktopApp:
             )
 
     def _start_drag_device(self, event: tk.Event) -> None:
-        listbox = self.device_view.listbox
-        index = listbox.nearest(event.y)
-        listbox.selection_clear(0, tk.END)
-        listbox.selection_set(index)
+        tree = self.device_view.tree
+        row_id = tree.identify_row(event.y)
+        if not row_id:
+            return
+        tree.selection_set(row_id)
         device = self.device_view.get_selected_device()
         if device:
             self.drag_data = {
@@ -86,12 +117,14 @@ class DesktopApp:
                 "id": device.device_id,
                 "source": "left",
             }
+            self._begin_drag(event, device.display_name or device.asset_no)
 
     def _start_drag_license(self, event: tk.Event) -> None:
-        listbox = self.license_view.listbox
-        index = listbox.nearest(event.y)
-        listbox.selection_clear(0, tk.END)
-        listbox.selection_set(index)
+        tree = self.license_view.tree
+        row_id = tree.identify_row(event.y)
+        if not row_id:
+            return
+        tree.selection_set(row_id)
         license_item = self.license_view.get_selected_license()
         if license_item:
             self.drag_data = {
@@ -99,6 +132,7 @@ class DesktopApp:
                 "id": license_item.license_id,
                 "source": "left",
             }
+            self._begin_drag(event, license_item.name)
 
     def _start_drag_config_device(self, event: tk.Event, card: ConfigCard) -> None:
         listbox = card.device_listbox
@@ -113,6 +147,7 @@ class DesktopApp:
                 "source": "config",
                 "source_config_id": card.config_obj.config_id,
             }
+            self._begin_drag(event, device.display_name or device.asset_no)
 
     def _start_drag_config_license(self, event: tk.Event, card: ConfigCard) -> None:
         listbox = card.license_listbox
@@ -127,6 +162,64 @@ class DesktopApp:
                 "source": "config",
                 "source_config_id": card.config_obj.config_id,
             }
+            self._begin_drag(event, license_item.name)
+
+    def _begin_drag(self, event: tk.Event, label: str) -> None:
+        if self._drag_preview is None:
+            preview = tk.Toplevel(self.root)
+            preview.overrideredirect(True)
+            preview.attributes("-topmost", True)
+            preview.configure(bg="#222222")
+            self._drag_preview = preview
+            self._drag_preview_label = tk.Label(
+                preview,
+                text=label,
+                fg="white",
+                bg="#222222",
+                padx=8,
+                pady=4,
+            )
+            self._drag_preview_label.pack()
+        elif self._drag_preview_label is not None:
+            self._drag_preview_label.configure(text=label)
+
+        self._move_drag_preview(event.x_root, event.y_root)
+
+    def _move_drag_preview(self, x_root: int, y_root: int) -> None:
+        if self._drag_preview is None:
+            return
+        offset = 12
+        self._drag_preview.geometry(f"+{x_root + offset}+{y_root + offset}")
+
+    def _on_drag_motion(self, event: tk.Event) -> None:
+        if not self.drag_data:
+            return
+        self._move_drag_preview(event.x_root, event.y_root)
+
+        target = self.root.winfo_containing(event.x_root, event.y_root)
+        target_card, target_type = self._resolve_drop_target(target)
+        target_widget: Optional[tk.Widget] = None
+        if target_card is not None and target_type == "device":
+            target_widget = target_card.device_listbox
+        elif target_card is not None and target_type == "license":
+            target_widget = target_card.license_listbox
+
+        self._set_hover_target(target_widget)
+
+    def _set_hover_target(self, widget: Optional[tk.Widget]) -> None:
+        if widget == self._hover_target:
+            return
+
+        if self._hover_target is not None:
+            original = self._hover_target_bg.get(self._hover_target)
+            if original is not None:
+                self._hover_target.configure(background=original)
+
+        self._hover_target = widget
+        if widget is not None:
+            if widget not in self._hover_target_bg:
+                self._hover_target_bg[widget] = widget.cget("background")
+            widget.configure(background="#dbeafe")
 
     def _on_drop(self, event: tk.Event) -> None:
         if not self.drag_data:
@@ -136,6 +229,7 @@ class DesktopApp:
         target_card, target_type = self._resolve_drop_target(target)
         if target_card is None or target_type is None:
             self.drag_data = {}
+            self._cleanup_drag_ui()
             return
 
         drag_type = self.drag_data.get("type")
@@ -152,11 +246,14 @@ class DesktopApp:
             self.config_service.assign_license(target_card.config_obj.config_id, item_id)
         else:
             self.drag_data = {}
+            self._cleanup_drag_ui()
             return
 
         self.config_board.refresh()
         self._bind_config_card_listboxes()
+        self._refresh_asset_views()
         self.drag_data = {}
+        self._cleanup_drag_ui()
 
     def _resolve_drop_target(self, widget: tk.Widget | None) -> tuple[Optional[ConfigCard], Optional[str]]:
         if widget is None:
@@ -167,6 +264,19 @@ class DesktopApp:
             if widget == card.license_listbox:
                 return card, "license"
         return None, None
+
+    def _cleanup_drag_ui(self) -> None:
+        self._set_hover_target(None)
+        if self._drag_preview is not None:
+            self._drag_preview.destroy()
+            self._drag_preview = None
+            self._drag_preview_label = None
+
+    def _refresh_asset_views(self) -> None:
+        self.device_view.refresh()
+        self.license_view.refresh()
+        self.device_admin_view.refresh()
+        self.license_admin_view.refresh()
 
     def run(self) -> None:
         self.root.mainloop()
