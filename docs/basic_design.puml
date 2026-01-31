@@ -1,0 +1,45 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "UI" {
+  class DesktopApp
+  class DeviceListView
+  class LicenseListView
+  class ConfigBoard
+  class ConfigCard
+}
+
+package "Services" {
+  class AssetService
+  class ConfigService
+}
+
+package "Repositories" {
+  class DeviceRepository
+  class LicenseRepository
+  class ConfigRepository
+}
+
+package "Infra" {
+  class DB as "init_db"
+}
+
+DesktopApp --> DeviceListView
+DesktopApp --> LicenseListView
+DesktopApp --> ConfigBoard
+ConfigBoard --> ConfigCard
+
+DeviceListView --> AssetService
+LicenseListView --> AssetService
+ConfigBoard --> ConfigService
+ConfigCard --> ConfigService
+
+AssetService --> DeviceRepository
+AssetService --> LicenseRepository
+ConfigService --> ConfigRepository
+
+DeviceRepository --> DB
+LicenseRepository --> DB
+ConfigRepository --> DB
+@enduml

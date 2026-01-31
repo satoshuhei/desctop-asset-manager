@@ -1,0 +1,20 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "Test Suite" {
+  class TestAppStartup as "test_app_startup.py"
+  class TestDbSmoke as "test_db_smoke.py"
+  class TestImports as "test_imports.py"
+}
+
+package "Coverage" {
+  class UIStartup
+  class SampleData
+  class ImportPaths
+}
+
+TestAppStartup --> UIStartup : verifies
+TestDbSmoke --> SampleData : verifies
+TestImports --> ImportPaths : verifies
+@enduml
