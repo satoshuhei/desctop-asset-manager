@@ -132,8 +132,6 @@ class ConfigBoard(ttk.Frame):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
-        self.refresh()
-
     def refresh(self) -> None:
         for child in self.scrollable.winfo_children():
             child.destroy()

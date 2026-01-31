@@ -19,3 +19,16 @@ def test_init_db_smoke() -> None:
 
     conn = init_db(":memory:")
     conn.close()
+
+
+def test_init_db_seeds_sample_data() -> None:
+    from dam.infra.db import init_db
+
+    conn = init_db(":memory:")
+    try:
+        device_count = conn.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
+        license_count = conn.execute("SELECT COUNT(*) FROM licenses").fetchone()[0]
+        assert device_count > 0
+        assert license_count > 0
+    finally:
+        conn.close()

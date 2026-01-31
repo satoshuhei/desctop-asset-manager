@@ -7,6 +7,8 @@ import sys
 def _ensure_src_path() -> None:
     root = os.path.dirname(os.path.dirname(__file__))
     src_path = os.path.join(root, "src")
+    if root not in sys.path:
+        sys.path.insert(0, root)
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
 

@@ -1,7 +1,34 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Optional
+
+
+def _seed_sample_data(conn: sqlite3.Connection) -> None:
+    device_count = conn.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
+    if device_count == 0:
+        conn.executemany(
+            """
+            INSERT INTO devices (asset_no, display_name, device_type, model, version, state, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("DEV-001", "Office PC", "PC", "OptiPlex 7090", "2023", "active", "sample"),
+                ("DEV-002", "Meeting Laptop", "Laptop", "ThinkPad X1", "Gen 10", "active", "sample"),
+            ],
+        )
+
+    license_count = conn.execute("SELECT COUNT(*) FROM licenses").fetchone()[0]
+    if license_count == 0:
+        conn.executemany(
+            """
+            INSERT INTO licenses (name, license_key, state, note)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                ("Office 365", "O365-SAMPLE-001", "active", "sample"),
+                ("Adobe CC", "ADCC-SAMPLE-001", "active", "sample"),
+            ],
+        )
 
 
 def init_db(db_path: str = ":memory:") -> sqlite3.Connection:
@@ -69,5 +96,7 @@ def init_db(db_path: str = ":memory:") -> sqlite3.Connection:
         )
         """
     )
+
+    _seed_sample_data(conn)
     conn.commit()
     return conn

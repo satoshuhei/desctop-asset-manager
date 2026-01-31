@@ -56,6 +56,8 @@ class DesktopApp:
         self.config_board = ConfigBoard(right_frame, self.config_service, on_refresh=self._bind_config_card_listboxes)
         self.config_board.pack(fill="both", expand=True)
 
+        self.config_board.refresh()
+
         self.device_view.listbox.bind("<ButtonPress-1>", self._start_drag_device)
         self.license_view.listbox.bind("<ButtonPress-1>", self._start_drag_license)
 
