@@ -1,0 +1,50 @@
+@startuml
+hide circle
+skinparam shadowing false
+
+entity "devices" as devices {
+  * device_id : INTEGER <<PK>>
+  --
+  asset_no : TEXT <<UNIQUE>>
+  display_name : TEXT
+  device_type : TEXT
+  model : TEXT
+  version : TEXT
+  state : TEXT
+  note : TEXT
+}
+
+entity "licenses" as licenses {
+  * license_id : INTEGER <<PK>>
+  --
+  name : TEXT
+  license_key : TEXT
+  state : TEXT
+  note : TEXT
+}
+
+entity "configurations" as configurations {
+  * config_id : INTEGER <<PK>>
+  --
+  name : TEXT
+  note : TEXT
+}
+
+entity "config_devices" as config_devices {
+  * config_id : INTEGER <<PK,FK>>
+  * device_id : INTEGER <<PK,FK>>
+}
+
+entity "config_licenses" as config_licenses {
+  * config_id : INTEGER <<PK,FK>>
+  * license_id : INTEGER <<PK,FK>>
+  --
+  note : TEXT
+}
+
+configurations ||--o{ config_devices
+configurations ||--o{ config_licenses
+
+devices ||--o{ config_devices
+licenses ||--o{ config_licenses
+@enduml
