@@ -19,6 +19,7 @@ class Device:
 @dataclass(frozen=True)
 class License:
     license_id: int
+    license_no: str
     name: str
     license_key: str
     state: str
@@ -31,6 +32,8 @@ class Configuration:
     config_no: str
     name: str
     note: str
+    created_at: str
+    updated_at: str
 
 
 @dataclass(frozen=True)

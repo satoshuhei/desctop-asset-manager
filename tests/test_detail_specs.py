@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def _ensure_src_path() -> None:
     root = os.path.dirname(os.path.dirname(__file__))
@@ -31,17 +33,20 @@ def test_config_no_auto_generation() -> None:
         expected = f"CNFG-{int(next_id):03d}"
         config = repo.create(name="Auto Config", note="")
         assert config.config_no == expected
+        assert config.created_at
+        assert config.updated_at
     finally:
         conn.close()
 
 
-def test_assign_license_moves_to_new_config() -> None:
+def test_assign_license_rejects_second_config() -> None:
     conn = init_db(":memory:")
     try:
         asset_service = AssetService(DeviceRepository(conn), LicenseRepository(conn))
         config_service = ConfigService(ConfigRepository(conn))
 
         license_item = asset_service.add_license(
+            license_no="LIC-X",
             name="License X",
             license_key="LIC-X",
             state="active",
@@ -51,13 +56,14 @@ def test_assign_license_moves_to_new_config() -> None:
         config_b = config_service.create_config(name="Config B")
 
         config_service.assign_license(config_a.config_id, license_item.license_id)
-        config_service.assign_license(config_b.config_id, license_item.license_id)
+        with pytest.raises(ValueError):
+            config_service.assign_license(config_b.config_id, license_item.license_id)
 
         licenses_a = config_service.list_config_licenses(config_a.config_id)
         licenses_b = config_service.list_config_licenses(config_b.config_id)
 
-        assert all(l.license_id != license_item.license_id for l in licenses_a)
-        assert any(l.license_id == license_item.license_id for l in licenses_b)
+        assert any(l.license_id == license_item.license_id for l in licenses_a)
+        assert all(l.license_id != license_item.license_id for l in licenses_b)
     finally:
         conn.close()
 

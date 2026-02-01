@@ -63,7 +63,7 @@ class ConfigCard(ttk.LabelFrame):
 
         self.license_listbox.delete(0, tk.END)
         for license_item in licenses:
-            self.license_listbox.insert(tk.END, license_item.name)
+            self.license_listbox.insert(tk.END, f"{license_item.license_no} {license_item.name}")
 
     def _rename(self) -> None:
         name = simpledialog.askstring(tr("Rename"), tr("New configuration name"), parent=self)

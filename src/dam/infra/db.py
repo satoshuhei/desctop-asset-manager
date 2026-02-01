@@ -29,20 +29,20 @@ def _seed_sample_data(conn: sqlite3.Connection) -> None:
     if license_count == 0:
         conn.executemany(
             """
-            INSERT INTO licenses (name, license_key, state, note)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO licenses (license_no, name, license_key, state, note)
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
-                ("CANape", "CANAPE-SAMPLE-001", "active", "sample"),
-                ("CANalyzer", "CANA-SAMPLE-002", "active", "sample"),
-                ("CANoe", "CANOE-SAMPLE-003", "active", "sample"),
-                ("INCA Base", "INCA-SAMPLE-004", "active", "sample"),
-                ("INCA AddOn ASAP2", "INCA-SAMPLE-005", "active", "sample"),
-                ("Vector vMeasure", "VMEASURE-SAMPLE-006", "active", "sample"),
-                ("ETAS MDA", "ETAS-SAMPLE-007", "active", "sample"),
-                ("ETAS ASCMO", "ETAS-SAMPLE-008", "active", "sample"),
-                ("Diag Studio", "DIAG-SAMPLE-009", "active", "sample"),
-                ("Flash Tool", "FLASH-SAMPLE-010", "active", "sample"),
+                ("LIC-001", "CANape", "CANAPE-SAMPLE-001", "active", "sample"),
+                ("LIC-002", "CANalyzer", "CANA-SAMPLE-002", "active", "sample"),
+                ("LIC-003", "CANoe", "CANOE-SAMPLE-003", "active", "sample"),
+                ("LIC-004", "INCA Base", "INCA-SAMPLE-004", "active", "sample"),
+                ("LIC-005", "INCA AddOn ASAP2", "INCA-SAMPLE-005", "active", "sample"),
+                ("LIC-006", "Vector vMeasure", "VMEASURE-SAMPLE-006", "active", "sample"),
+                ("LIC-007", "ETAS MDA", "ETAS-SAMPLE-007", "active", "sample"),
+                ("LIC-008", "ETAS ASCMO", "ETAS-SAMPLE-008", "active", "sample"),
+                ("LIC-009", "Diag Studio", "DIAG-SAMPLE-009", "active", "sample"),
+                ("LIC-010", "Flash Tool", "FLASH-SAMPLE-010", "active", "sample"),
             ],
         )
 
@@ -75,9 +75,8 @@ def _seed_sample_data(conn: sqlite3.Connection) -> None:
         device_pairs = []
         license_pairs = []
         for index, config_id in enumerate(config_ids):
-            first_device = device_ids[(index * 2) % len(device_ids)]
-            second_device = device_ids[(index * 2 + 1) % len(device_ids)]
-            device_pairs.extend([(config_id, first_device), (config_id, second_device)])
+            if index < len(device_ids):
+                device_pairs.append((config_id, device_ids[index]))
             license_id = license_ids[index % len(license_ids)]
             license_pairs.append((config_id, license_id, "sample"))
 
@@ -120,6 +119,7 @@ def init_db(db_path: str = ":memory:") -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS licenses (
             license_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_no TEXT NOT NULL,
             name TEXT NOT NULL,
             license_key TEXT NOT NULL,
             state TEXT NOT NULL,
@@ -127,17 +127,21 @@ def init_db(db_path: str = ":memory:") -> sqlite3.Connection:
         )
         """
     )
+    _ensure_license_no(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS configurations (
             config_id INTEGER PRIMARY KEY AUTOINCREMENT,
             config_no TEXT,
             name TEXT NOT NULL,
-            note TEXT NOT NULL DEFAULT ''
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
     _ensure_config_no(conn)
+    _ensure_config_timestamps(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS config_devices (
@@ -180,5 +184,34 @@ def _ensure_config_no(conn: sqlite3.Connection) -> None:
         UPDATE configurations
         SET config_no = printf('CNFG-%03d', config_id)
         WHERE config_no IS NULL OR config_no = ''
+        """
+    )
+
+
+def _ensure_config_timestamps(conn: sqlite3.Connection) -> None:
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(configurations)")]
+    if "created_at" not in columns:
+        conn.execute("ALTER TABLE configurations ADD COLUMN created_at TEXT")
+    if "updated_at" not in columns:
+        conn.execute("ALTER TABLE configurations ADD COLUMN updated_at TEXT")
+    conn.execute(
+        """
+        UPDATE configurations
+        SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
+            updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+        WHERE created_at IS NULL OR created_at = '' OR updated_at IS NULL OR updated_at = ''
+        """
+    )
+
+
+def _ensure_license_no(conn: sqlite3.Connection) -> None:
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(licenses)")]
+    if "license_no" not in columns:
+        conn.execute("ALTER TABLE licenses ADD COLUMN license_no TEXT")
+    conn.execute(
+        """
+        UPDATE licenses
+        SET license_no = printf('LIC-%03d', license_id)
+        WHERE license_no IS NULL OR license_no = ''
         """
     )

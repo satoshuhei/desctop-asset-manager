@@ -67,13 +67,13 @@ class LicenseRepository:
     def _row_to_license(row: tuple) -> License:
         return License(*row)
 
-    def create(self, name: str, license_key: str, state: str, note: str) -> License:
+    def create(self, license_no: str, name: str, license_key: str, state: str, note: str) -> License:
         cur = self._conn.execute(
             """
-            INSERT INTO licenses (name, license_key, state, note)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO licenses (license_no, name, license_key, state, note)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (name, license_key, state, note),
+            (license_no, name, license_key, state, note),
         )
         self._conn.commit()
         return self.get_by_id(int(cur.lastrowid))
@@ -81,7 +81,7 @@ class LicenseRepository:
     def list_all(self) -> List[License]:
         cur = self._conn.execute(
             """
-            SELECT license_id, name, license_key, state, note
+            SELECT license_id, license_no, name, license_key, state, note
             FROM licenses
             ORDER BY license_id DESC
             """
@@ -91,7 +91,7 @@ class LicenseRepository:
     def get_by_id(self, license_id: int) -> License:
         cur = self._conn.execute(
             """
-            SELECT license_id, name, license_key, state, note
+            SELECT license_id, license_no, name, license_key, state, note
             FROM licenses
             WHERE license_id = ?
             """,
@@ -128,7 +128,7 @@ class ConfigRepository:
     def list_all(self) -> List[Configuration]:
         cur = self._conn.execute(
             """
-            SELECT config_id, config_no, name, note
+            SELECT config_id, config_no, name, note, created_at, updated_at
             FROM configurations
             ORDER BY config_id ASC
             """
@@ -138,7 +138,7 @@ class ConfigRepository:
     def get_by_id(self, config_id: int) -> Configuration:
         cur = self._conn.execute(
             """
-            SELECT config_id, config_no, name, note
+            SELECT config_id, config_no, name, note, created_at, updated_at
             FROM configurations
             WHERE config_id = ?
             """,
@@ -153,12 +153,22 @@ class ConfigRepository:
         self._conn.execute(
             """
             UPDATE configurations
-            SET name = ?
+            SET name = ?, updated_at = CURRENT_TIMESTAMP
             WHERE config_id = ?
             """,
             (name, config_id),
         )
         self._conn.commit()
+
+    def _touch_config(self, config_id: int) -> None:
+        self._conn.execute(
+            """
+            UPDATE configurations
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE config_id = ?
+            """,
+            (config_id,),
+        )
 
     def list_devices(self, config_id: int) -> List[Device]:
         cur = self._conn.execute(
@@ -176,7 +186,7 @@ class ConfigRepository:
     def list_licenses(self, config_id: int) -> List[License]:
         cur = self._conn.execute(
             """
-            SELECT l.license_id, l.name, l.license_key, l.state, l.note
+            SELECT l.license_id, l.license_no, l.name, l.license_key, l.state, l.note
             FROM licenses l
             INNER JOIN config_licenses cl ON cl.license_id = l.license_id
             WHERE cl.config_id = ?
@@ -186,7 +196,52 @@ class ConfigRepository:
         )
         return [License(*row) for row in cur.fetchall()]
 
+    def list_assigned_device_ids(self) -> List[int]:
+        cur = self._conn.execute(
+            """
+            SELECT DISTINCT device_id
+            FROM config_devices
+            """
+        )
+        return [row[0] for row in cur.fetchall()]
+
+    def list_assigned_license_ids(self) -> List[int]:
+        cur = self._conn.execute(
+            """
+            SELECT DISTINCT license_id
+            FROM config_licenses
+            """
+        )
+        return [row[0] for row in cur.fetchall()]
+
+    def get_device_owner(self, device_id: int) -> Optional[int]:
+        cur = self._conn.execute(
+            """
+            SELECT config_id
+            FROM config_devices
+            WHERE device_id = ?
+            """,
+            (device_id,),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else None
+
+    def get_license_owner(self, license_id: int) -> Optional[int]:
+        cur = self._conn.execute(
+            """
+            SELECT config_id
+            FROM config_licenses
+            WHERE license_id = ?
+            """,
+            (license_id,),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else None
+
     def assign_device(self, config_id: int, device_id: int) -> None:
+        owner = self.get_device_owner(device_id)
+        if owner is not None and owner != config_id:
+            raise ValueError("Device already assigned")
         self._conn.execute(
             """
             INSERT OR IGNORE INTO config_devices (config_id, device_id)
@@ -194,6 +249,7 @@ class ConfigRepository:
             """,
             (config_id, device_id),
         )
+        self._touch_config(config_id)
         self._conn.commit()
 
     def unassign_device(self, config_id: int, device_id: int) -> None:
@@ -204,6 +260,7 @@ class ConfigRepository:
             """,
             (config_id, device_id),
         )
+        self._touch_config(config_id)
         self._conn.commit()
 
     def move_device(self, from_config_id: int, to_config_id: int, device_id: int) -> None:
@@ -213,14 +270,27 @@ class ConfigRepository:
         self.assign_device(to_config_id, device_id)
 
     def assign_license(self, config_id: int, license_id: int, note: str = "") -> None:
-        self._conn.execute(
-            """
-            INSERT INTO config_licenses (config_id, license_id, note)
-            VALUES (?, ?, ?)
-            ON CONFLICT(license_id) DO UPDATE SET config_id = excluded.config_id
-            """,
-            (config_id, license_id, note),
-        )
+        owner = self.get_license_owner(license_id)
+        if owner is not None and owner != config_id:
+            raise ValueError("License already assigned")
+        if owner == config_id:
+            self._conn.execute(
+                """
+                UPDATE config_licenses
+                SET note = ?
+                WHERE config_id = ? AND license_id = ?
+                """,
+                (note, config_id, license_id),
+            )
+        else:
+            self._conn.execute(
+                """
+                INSERT INTO config_licenses (config_id, license_id, note)
+                VALUES (?, ?, ?)
+                """,
+                (config_id, license_id, note),
+            )
+        self._touch_config(config_id)
         self._conn.commit()
 
     def unassign_license(self, config_id: int, license_id: int) -> None:
@@ -231,4 +301,5 @@ class ConfigRepository:
             """,
             (config_id, license_id),
         )
+        self._touch_config(config_id)
         self._conn.commit()

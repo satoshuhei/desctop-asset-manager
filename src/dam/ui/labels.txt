@@ -3,6 +3,12 @@
 # Common
 Filters = フィルター
 Search = 検索
+Reset = リセット
+Active Filters = 適用中条件
+All = すべて
+Device filter applied = デバイスのフィルターを適用しました
+License filter applied = ライセンスのフィルターを適用しました
+Filter reset = フィルターをリセットしました
 Tickets = チケット
 Subject = 件名
 Status = ステータス
@@ -24,9 +30,11 @@ Asset No is required = 資産番号は必須です
 
 # License list
 License Key = ライセンスキー
+License No = ライセンス番号
 New License Ticket = 新規ライセンス
 Create License = ライセンス追加
 Subject is required = 件名は必須です
+License No is required = ライセンス番号は必須です
 Delete = 削除
 Move = 移動
 Undo = 元に戻す
@@ -42,8 +50,15 @@ Config renamed = 構成名を変更しました
 Config hidden = 構成を非表示にしました
 Config restored = 構成を復元しました
 Position saved = 配置を保存しました
+In Use = 使用中
+Device already in use = デバイスは使用中のため割り当てできません
+License already in use = ライセンスは使用中のため割り当てできません
 Arrange: Column = 縦に整列
 Arrange: Row = 横に整列
+Arrange: Row (No ↑) = 整列_横_構成No昇順
+Arrange: Row (No ↓) = 整列_横_構成No降順
+Arrange: Row (Updated ↓) = 整列_横_最終更新日降順
+Arrange: Row (Created ↓) = 整列_横_作成日降順
 Arranged = 整列しました
 
 # Config board (Tk)
@@ -52,6 +67,8 @@ ID: {id} = ID: {id}
 Configuration = 構成
 Configuration name = 構成名
 Config No = 構成番号
+Created At = 作成日
+Updated At = 最終更新日
 Create = 作成
 Update = 更新
 New configuration name = 新しい構成名
@@ -60,6 +77,7 @@ New configuration name = 新しい構成名
 # Qt canvas
 Configuration Canvas = 構成キャンバス
 Configuration Details = 構成詳細
+Log = ログ
 + New Config = + 新規構成
 Drop assets here = ここにアセットをドロップ
 New Configuration = 新規構成

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -16,6 +17,7 @@ from dam.ui.ui_state import CanvasState, UIStateStore, ui_state_db_path
 
 
 ASSET_MIME = "application/x-asset"
+IN_USE_ROLE = int(QtCore.Qt.UserRole) + 1
 
 
 def _encode_drag(asset_type: str, asset_id: int, source_config_id: Optional[int]) -> bytes:
@@ -42,6 +44,7 @@ def _build_pane_title(text: str) -> QtWidgets.QFrame:
     layout.setContentsMargins(10, 6, 10, 6)
     label = QtWidgets.QLabel(text)
     label.setObjectName("PaneTitleText")
+    label.setStyleSheet("color: #ffffff;")
     label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
     layout.addWidget(label)
     layout.addStretch(1)
@@ -123,6 +126,8 @@ class AssetTableWidget(QtWidgets.QTableWidget):
             return
         asset_id_item = self.item(row, 0)
         if asset_id_item is None:
+            return
+        if asset_id_item.data(IN_USE_ROLE):
             return
         asset_id = asset_id_item.data(QtCore.Qt.UserRole)
         mime = QtCore.QMimeData()
@@ -291,6 +296,36 @@ class ToastManager(QtWidgets.QWidget):
         frame.deleteLater()
 
 
+class LogPanel(QtWidgets.QWidget):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("PaneArea")
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        layout.addWidget(_build_pane_title(tr("Log")))
+
+        body = QtWidgets.QWidget()
+        body_layout = QtWidgets.QVBoxLayout(body)
+        body_layout.setContentsMargins(12, 10, 12, 12)
+        body_layout.setSpacing(8)
+
+        self._view = QtWidgets.QPlainTextEdit()
+        self._view.setReadOnly(True)
+        self._view.setObjectName("LogViewer")
+        self._view.setStyleSheet(
+            "QPlainTextEdit { background-color: #ffffff; border: 1px solid #d5d5d5; padding: 6px; }"
+        )
+        body_layout.addWidget(self._view)
+        layout.addWidget(body)
+
+    def append(self, message: str) -> None:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._view.appendPlainText(f"{timestamp} {message}")
+
+
 class UIActions:
     def __init__(
         self,
@@ -299,12 +334,18 @@ class UIActions:
         refresh_all: Callable[[], None],
         toast: ToastManager,
         undo_stack: UndoStack,
+        log: Callable[[str], None] | None = None,
     ) -> None:
         self._asset_service = asset_service
         self._config_service = config_service
         self._refresh_all = refresh_all
         self._toast = toast
         self._undo_stack = undo_stack
+        self._log = log
+
+    def _log_event(self, message: str) -> None:
+        if self._log:
+            self._log(message)
 
     def _find_license_owner(self, license_id: int) -> Optional[int]:
         for config in self._config_service.list_configs():
@@ -320,35 +361,58 @@ class UIActions:
             def do_fn() -> None:
                 self._config_service.move_device(source_config_id, config_id, device_id)
                 self._refresh_all()
-                self._toast.show_message(tr("Device moved"))
+                message = tr("Device moved")
+                self._toast.show_message(message)
+                self._log_event(message)
 
             def undo_fn() -> None:
                 self._config_service.move_device(config_id, source_config_id, device_id)
                 self._refresh_all()
-                self._toast.show_message(tr("Undo"))
+                message = tr("Undo")
+                self._toast.show_message(message)
+                self._log_event(message)
 
             self._undo_stack.push(label, do_fn, undo_fn)
+            return
+
+        owner = self._config_service.get_device_owner(device_id)
+        if owner is not None and owner != config_id:
+            message = tr("Device already in use")
+            self._toast.show_message(message)
+            self._log_event(message)
             return
 
         def do_assign() -> None:
             self._config_service.assign_device(config_id, device_id)
             self._refresh_all()
-            self._toast.show_message(tr("Device assigned"))
+            message = tr("Device assigned")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         def undo_assign() -> None:
             self._config_service.unassign_device(config_id, device_id)
             self._refresh_all()
-            self._toast.show_message(tr("Undo"))
+            message = tr("Undo")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         self._undo_stack.push(tr("Devices"), do_assign, undo_assign)
 
     def assign_license(self, config_id: int, license_id: int) -> None:
         previous_owner = self._find_license_owner(license_id)
 
+        if previous_owner is not None and previous_owner != config_id:
+            message = tr("License already in use")
+            self._toast.show_message(message)
+            self._log_event(message)
+            return
+
         def do_fn() -> None:
             self._config_service.assign_license(config_id, license_id)
             self._refresh_all()
-            self._toast.show_message(tr("License assigned"))
+            message = tr("License assigned")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         def undo_fn() -> None:
             if previous_owner is None:
@@ -356,7 +420,9 @@ class UIActions:
             else:
                 self._config_service.assign_license(previous_owner, license_id)
             self._refresh_all()
-            self._toast.show_message(tr("Undo"))
+            message = tr("Undo")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         self._undo_stack.push(tr("Licenses"), do_fn, undo_fn)
 
@@ -364,12 +430,16 @@ class UIActions:
         def do_fn() -> None:
             self._config_service.unassign_device(config_id, device_id)
             self._refresh_all()
-            self._toast.show_message(tr("Device unassigned"))
+            message = tr("Device unassigned")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         def undo_fn() -> None:
             self._config_service.assign_device(config_id, device_id)
             self._refresh_all()
-            self._toast.show_message(tr("Undo"))
+            message = tr("Undo")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         self._undo_stack.push(tr("Devices"), do_fn, undo_fn)
 
@@ -377,12 +447,16 @@ class UIActions:
         def do_fn() -> None:
             self._config_service.unassign_license(config_id, license_id)
             self._refresh_all()
-            self._toast.show_message(tr("License unassigned"))
+            message = tr("License unassigned")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         def undo_fn() -> None:
             self._config_service.assign_license(config_id, license_id)
             self._refresh_all()
-            self._toast.show_message(tr("Undo"))
+            message = tr("Undo")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         self._undo_stack.push(tr("Licenses"), do_fn, undo_fn)
 
@@ -393,43 +467,69 @@ class UIActions:
         def do_fn() -> None:
             self._config_service.rename_config(config_id, new_name)
             self._refresh_all()
-            self._toast.show_message(tr("Config renamed"))
+            message = tr("Config renamed")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         def undo_fn() -> None:
             self._config_service.rename_config(config_id, old_name)
             self._refresh_all()
-            self._toast.show_message(tr("Undo"))
+            message = tr("Undo")
+            self._toast.show_message(message)
+            self._log_event(message)
 
         self._undo_stack.push(tr("Configuration"), do_fn, undo_fn)
 
 
 class BasicActions:
-    def __init__(self, config_service: ConfigService, refresh_all: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        config_service: ConfigService,
+        refresh_all: Callable[[], None],
+        log: Callable[[str], None] | None = None,
+    ) -> None:
         self._config_service = config_service
         self._refresh_all = refresh_all
+        self._log = log
+
+    def _log_event(self, message: str) -> None:
+        if self._log:
+            self._log(message)
 
     def assign_device(self, config_id: int, device_id: int, source_config_id: Optional[int]) -> None:
         if source_config_id and source_config_id != config_id:
             self._config_service.move_device(source_config_id, config_id, device_id)
+            self._log_event(tr("Device moved"))
         else:
-            self._config_service.assign_device(config_id, device_id)
+            try:
+                self._config_service.assign_device(config_id, device_id)
+                self._log_event(tr("Device assigned"))
+            except ValueError:
+                self._log_event(tr("Device already in use"))
         self._refresh_all()
 
     def assign_license(self, config_id: int, license_id: int) -> None:
-        self._config_service.assign_license(config_id, license_id)
+        try:
+            self._config_service.assign_license(config_id, license_id)
+            self._log_event(tr("License assigned"))
+        except ValueError:
+            self._log_event(tr("License already in use"))
         self._refresh_all()
 
     def unassign_device(self, config_id: int, device_id: int) -> None:
         self._config_service.unassign_device(config_id, device_id)
+        self._log_event(tr("Device unassigned"))
         self._refresh_all()
 
     def unassign_license(self, config_id: int, license_id: int) -> None:
         self._config_service.unassign_license(config_id, license_id)
+        self._log_event(tr("License unassigned"))
         self._refresh_all()
 
     def rename_config(self, config_id: int, old_name: str, new_name: str) -> None:
         if old_name != new_name:
             self._config_service.rename_config(config_id, new_name)
+            self._log_event(tr("Config renamed"))
             self._refresh_all()
 
 
@@ -444,6 +544,7 @@ class ConfigCardWidget(QtWidgets.QFrame):
         on_drag_start: Callable[[int, QtCore.QPoint], None],
         on_drag_move: Callable[[QtCore.QPoint], None],
         on_drag_end: Callable[[QtCore.QPoint], None],
+        on_log: Callable[[str], None] | None = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -455,6 +556,7 @@ class ConfigCardWidget(QtWidgets.QFrame):
         self._on_drag_start = on_drag_start
         self._on_drag_move = on_drag_move
         self._on_drag_end = on_drag_end
+        self._on_log = on_log
 
         self.setObjectName("ConfigCard")
         self.setStyleSheet(
@@ -499,6 +601,7 @@ class ConfigCardWidget(QtWidgets.QFrame):
             [tr("Asset No"), tr("Display Name"), tr("Model"), tr("Version")]
         )
         self.device_list.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Minimum)
+        self.device_list.horizontalHeader().setVisible(False)
         self.device_list.setStyleSheet(
             "QTableWidget { background-color: #ffffff; color: #333333; border-radius: 6px; padding: 6px; "
             "border: 1px solid #d5d5d5; gridline-color: #e3e3e3; }"
@@ -537,6 +640,7 @@ class ConfigCardWidget(QtWidgets.QFrame):
         self.license_list.customContextMenuRequested.connect(
             lambda pos: self._show_context_menu(self.license_list, "license", pos)
         )
+        self._install_selection_filters()
 
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_card_menu)
@@ -560,11 +664,44 @@ class ConfigCardWidget(QtWidgets.QFrame):
         self.license_list.clear()
         licenses = self._service.list_config_licenses(self.config.config_id)
         for license_item in licenses:
-            item = QtWidgets.QListWidgetItem(license_item.name)
+            item = QtWidgets.QListWidgetItem(f"{license_item.license_no} {license_item.name}")
             item.setData(QtCore.Qt.UserRole, license_item.license_id)
             self.license_list.addItem(item)
 
         self._adjust_list_height(self.license_list)
+
+    def _ensure_selected(self) -> None:
+        proxy = self.graphicsProxyWidget()
+        if proxy:
+            scene = proxy.scene()
+            if scene:
+                scene.clearSelection()
+            proxy.setSelected(True)
+        self._debug_log("ensure_selected")
+
+    def _install_selection_filters(self) -> None:
+        for child in self.findChildren(QtWidgets.QWidget):
+            if child is self:
+                continue
+            child.installEventFilter(self)
+
+    def _debug_log(self, source: str, widget_name: str | None = None) -> None:
+        if not self._on_log:
+            return
+        extra = f" widget={widget_name}" if widget_name else ""
+        self._on_log(f"[DEBUG] card_click config_id={self.config.config_id} source={source}{extra}")
+
+    def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if event.type() in (QtCore.QEvent.MouseButtonPress, QtCore.QEvent.FocusIn):
+            widget_name = watched.objectName() if isinstance(watched, QtCore.QObject) else None
+            self._debug_log("event_filter", widget_name)
+            self._ensure_selected()
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        self._debug_log("mouse_press", self.objectName())
+        self._ensure_selected()
+        super().mousePressEvent(event)
 
     def _adjust_list_height(self, list_widget: QtWidgets.QListWidget) -> None:
         count = list_widget.count()
@@ -595,7 +732,14 @@ class ConfigCardWidget(QtWidgets.QFrame):
             return
         if name != self.config.name:
             self._actions.rename_config(self.config.config_id, self.config.name, name)
-            self.config = Configuration(self.config.config_id, self.config.config_no, name, self.config.note)
+            self.config = Configuration(
+                self.config.config_id,
+                self.config.config_no,
+                name,
+                self.config.note,
+                self.config.created_at,
+                self.config.updated_at,
+            )
             self._on_refresh()
 
     def _handle_drop(self, asset_type: str, asset_id: int, source_config_id: Optional[int]) -> None:
@@ -769,6 +913,7 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         self._drag_offset = QtCore.QPointF(0, 0)
         self._drag_start_pos = QtCore.QPointF(0, 0)
         self._selected_config_id: Optional[int] = None
+        self._suppress_selection_log = False
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -779,33 +924,41 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         splitter.setStyleSheet("QSplitter::handle { background-color: #d5d5d5; }")
 
         detail_panel = QtWidgets.QFrame()
-        detail_panel.setStyleSheet(
-            "QFrame { background-color: #f8f8f8; border-bottom: 1px solid #d5d5d5; }"
-            "QLabel { color: #333333; }"
-        )
-        detail_layout = QtWidgets.QGridLayout(detail_panel)
-        detail_layout.setContentsMargins(12, 10, 12, 10)
-        detail_layout.setHorizontalSpacing(10)
-        detail_layout.setVerticalSpacing(6)
+        detail_panel.setObjectName("PaneArea")
+        detail_panel_layout = QtWidgets.QVBoxLayout(detail_panel)
+        detail_panel_layout.setContentsMargins(0, 0, 0, 0)
+        detail_panel_layout.setSpacing(0)
+        detail_panel_layout.addWidget(_build_pane_title(tr("Configuration Details")))
 
-        detail_title = _build_pane_title(tr("Configuration Details"))
-        detail_layout.addWidget(detail_title, 0, 0, 1, 6)
+        detail_body = QtWidgets.QWidget()
+        detail_body_layout = QtWidgets.QGridLayout(detail_body)
+        detail_body_layout.setContentsMargins(12, 10, 12, 10)
+        detail_body_layout.setHorizontalSpacing(10)
+        detail_body_layout.setVerticalSpacing(6)
 
-        detail_layout.addWidget(QtWidgets.QLabel(tr("Config No")), 1, 0)
+        detail_body_layout.addWidget(QtWidgets.QLabel(tr("Config No")), 0, 0)
         self.detail_no = QtWidgets.QLineEdit()
         self.detail_no.setReadOnly(True)
-        detail_layout.addWidget(self.detail_no, 1, 1)
+        detail_body_layout.addWidget(self.detail_no, 0, 1)
 
-        detail_layout.addWidget(QtWidgets.QLabel(tr("Configuration name")), 1, 2)
+        detail_body_layout.addWidget(QtWidgets.QLabel(tr("Configuration name")), 0, 2)
         self.detail_name = QtWidgets.QLineEdit()
         self.detail_name.setReadOnly(True)
-        detail_layout.addWidget(self.detail_name, 1, 3)
+        detail_body_layout.addWidget(self.detail_name, 0, 3)
 
-        detail_layout.setColumnStretch(3, 1)
+        detail_body_layout.addWidget(QtWidgets.QLabel(tr("Created At")), 1, 0)
+        self.detail_created = QtWidgets.QLineEdit()
+        self.detail_created.setReadOnly(True)
+        detail_body_layout.addWidget(self.detail_created, 1, 1)
+
+        detail_body_layout.addWidget(QtWidgets.QLabel(tr("Updated At")), 1, 2)
+        self.detail_updated = QtWidgets.QLineEdit()
+        self.detail_updated.setReadOnly(True)
+        detail_body_layout.addWidget(self.detail_updated, 1, 3)
 
         devices_title = QtWidgets.QLabel(tr("Devices"))
         devices_title.setObjectName("PaneSectionTitle")
-        detail_layout.addWidget(devices_title, 2, 0, 1, 1)
+        detail_body_layout.addWidget(devices_title, 2, 0, 1, 1)
         self.detail_devices = QtWidgets.QTableWidget()
         self.detail_devices.setColumnCount(5)
         self.detail_devices.setHorizontalHeaderLabels(
@@ -823,14 +976,16 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
             "QTableWidget { background-color: #ffffff; color: #333333; border-radius: 6px; border: 1px solid #d5d5d5; }"
             "QHeaderView::section { background-color: #f0f0f0; color: #333333; padding: 4px; border: none; }"
         )
-        detail_layout.addWidget(self.detail_devices, 2, 1, 1, 5)
+        detail_body_layout.addWidget(self.detail_devices, 2, 1, 1, 5)
 
         licenses_title = QtWidgets.QLabel(tr("Licenses"))
         licenses_title.setObjectName("PaneSectionTitle")
-        detail_layout.addWidget(licenses_title, 3, 0, 1, 1)
+        detail_body_layout.addWidget(licenses_title, 3, 0, 1, 1)
         self.detail_licenses = QtWidgets.QTableWidget()
-        self.detail_licenses.setColumnCount(3)
-        self.detail_licenses.setHorizontalHeaderLabels([tr("Subject"), tr("License Key"), tr("Status")])
+        self.detail_licenses.setColumnCount(4)
+        self.detail_licenses.setHorizontalHeaderLabels(
+            [tr("License No"), tr("Subject"), tr("License Key"), tr("Status")]
+        )
         self.detail_licenses.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.detail_licenses.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         self.detail_licenses.verticalHeader().setVisible(False)
@@ -843,42 +998,70 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
             "QTableWidget { background-color: #ffffff; color: #333333; border-radius: 6px; border: 1px solid #d5d5d5; }"
             "QHeaderView::section { background-color: #f0f0f0; color: #333333; padding: 4px; border: none; }"
         )
-        detail_layout.addWidget(self.detail_licenses, 3, 1, 1, 5)
+        detail_body_layout.addWidget(self.detail_licenses, 3, 1, 1, 5)
 
-        detail_layout.setColumnStretch(3, 1)
-        splitter.addWidget(detail_panel)
+        detail_body_layout.setColumnStretch(3, 1)
+        detail_panel_layout.addWidget(detail_body)
+
+        detail_log_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        detail_log_splitter.setHandleWidth(2)
+        detail_log_splitter.setStyleSheet("QSplitter::handle { background-color: #d5d5d5; }")
+        detail_panel.setMinimumWidth(420)
+        self.log_panel = LogPanel()
+        self.log_panel.setMinimumWidth(360)
+        detail_log_splitter.addWidget(detail_panel)
+        detail_log_splitter.addWidget(self.log_panel)
+        detail_log_splitter.setStretchFactor(0, 2)
+        detail_log_splitter.setStretchFactor(1, 3)
+        detail_log_splitter.setSizes([420, 520])
+        splitter.addWidget(detail_log_splitter)
 
         self._canvas_container = QtWidgets.QWidget()
+        self._canvas_container.setObjectName("PaneArea")
         canvas_layout = QtWidgets.QVBoxLayout(self._canvas_container)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.setSpacing(0)
 
         canvas_layout.addWidget(_build_pane_title(tr("Configuration Canvas")))
 
+        canvas_body = QtWidgets.QWidget()
+        canvas_body_layout = QtWidgets.QVBoxLayout(canvas_body)
+        canvas_body_layout.setContentsMargins(12, 10, 12, 12)
+        canvas_body_layout.setSpacing(8)
+
         toolbar = QtWidgets.QHBoxLayout()
-        toolbar.setContentsMargins(12, 10, 12, 8)
+        toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.addStretch(1)
 
-        arrange_col = QtWidgets.QPushButton(tr("Arrange: Column"))
-        arrange_col.clicked.connect(lambda: self._arrange_cards(mode="column"))
-        toolbar.addWidget(arrange_col)
+        arrange_row_no_asc = QtWidgets.QPushButton(tr("Arrange: Row (No ↑)"))
+        arrange_row_no_asc.clicked.connect(lambda: self._arrange_cards(mode="row", sort_key="config_no_asc"))
+        toolbar.addWidget(arrange_row_no_asc)
 
-        arrange_row = QtWidgets.QPushButton(tr("Arrange: Row"))
-        arrange_row.clicked.connect(lambda: self._arrange_cards(mode="row"))
-        toolbar.addWidget(arrange_row)
+        arrange_row_no_desc = QtWidgets.QPushButton(tr("Arrange: Row (No ↓)"))
+        arrange_row_no_desc.clicked.connect(lambda: self._arrange_cards(mode="row", sort_key="config_no_desc"))
+        toolbar.addWidget(arrange_row_no_desc)
+
+        arrange_row_updated = QtWidgets.QPushButton(tr("Arrange: Row (Updated ↓)"))
+        arrange_row_updated.clicked.connect(lambda: self._arrange_cards(mode="row", sort_key="updated_desc"))
+        toolbar.addWidget(arrange_row_updated)
+
+        arrange_row_created = QtWidgets.QPushButton(tr("Arrange: Row (Created ↓)"))
+        arrange_row_created.clicked.connect(lambda: self._arrange_cards(mode="row", sort_key="created_desc"))
+        toolbar.addWidget(arrange_row_created)
 
         add_button = QtWidgets.QPushButton(tr("+ New Config"))
         add_button.setObjectName("PrimaryButton")
         add_button.clicked.connect(self._add_config)
         toolbar.addWidget(add_button)
-        canvas_layout.addLayout(toolbar)
+        canvas_body_layout.addLayout(toolbar)
 
         self.scene = QtWidgets.QGraphicsScene(self)
         self.scene.selectionChanged.connect(self._on_selection_changed)
         self.view = ConfigGraphicsView(self.scene)
         self.view.setStyleSheet("background-color: #f5f5f5; border: none;")
         self.view.viewChanged.connect(self._on_view_changed)
-        canvas_layout.addWidget(self.view)
+        canvas_body_layout.addWidget(self.view)
+        canvas_layout.addWidget(canvas_body)
 
         self.placeholder = QtWidgets.QGraphicsTextItem(tr("Drop assets here"))
         self.placeholder.setDefaultTextColor(QtGui.QColor("#777777"))
@@ -898,11 +1081,13 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         self._set_detail_table_heights()
 
         if self._actions is None:
-            self._actions = BasicActions(self._service, self._refresh_all)
+            self._actions = BasicActions(self._service, self._refresh_all, log=self.log_message)
 
         self._load_ui_state()
 
     def refresh(self) -> None:
+        prev_selected = self._selected_config_id
+        self._suppress_selection_log = True
         for proxy in self._proxies.values():
             self.scene.removeItem(proxy)
         self._cards.clear()
@@ -921,6 +1106,7 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
                 self._start_card_drag,
                 self._move_card_drag,
                 self._end_card_drag,
+                on_log=self.log_message,
             )
             card.refresh()
             proxy = ConfigCardProxy(config.config_id, self._on_card_moved)
@@ -938,6 +1124,12 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
             self._proxies[config.config_id] = proxy
             self.scene.addItem(proxy)
 
+        if prev_selected is not None:
+            proxy = self._proxies.get(prev_selected)
+            if proxy:
+                proxy.setSelected(True)
+        self._suppress_selection_log = False
+
         self._update_placeholder()
         self._update_minimap()
 
@@ -946,15 +1138,21 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
             card.refresh()
         self._on_refresh_assets()
 
+    def log_message(self, message: str) -> None:
+        if hasattr(self, "log_panel"):
+            self.log_panel.append(message)
+
+    def log_debug(self, message: str) -> None:
+        self.log_message(f"[DEBUG] {message}")
+
     def _set_detail_table_heights(self) -> None:
         header_height = self.detail_devices.horizontalHeader().height()
         row_height = self.detail_devices.verticalHeader().defaultSectionSize()
-        target_rows = 6
-        self.detail_devices.setMinimumHeight(header_height + row_height * target_rows + 8)
+        self.detail_devices.setMinimumHeight(header_height + row_height * 4 + 8)
 
         header_height = self.detail_licenses.horizontalHeader().height()
         row_height = self.detail_licenses.verticalHeader().defaultSectionSize()
-        self.detail_licenses.setMinimumHeight(header_height + row_height * target_rows + 8)
+        self.detail_licenses.setMinimumHeight(header_height + row_height * 2 + 8)
 
     def _add_config(self) -> None:
         name, ok = QtWidgets.QInputDialog.getText(
@@ -969,6 +1167,7 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         self._state_store.set_hidden(created.config_id, False)
         if self._toast:
             self._toast.show_message(tr("Config created"))
+        self.log_message(tr("Config created"))
         if self._undo_stack:
             self._undo_stack.push(
                 tr("Configuration"),
@@ -1023,9 +1222,13 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
                 break
 
         self._selected_config_id = selected_id
+        if not self._suppress_selection_log:
+            self.log_debug(f"selection_changed id={selected_id}")
         if selected_id is None:
             self.detail_no.clear()
             self.detail_name.clear()
+            self.detail_created.clear()
+            self.detail_updated.clear()
             self.detail_devices.setRowCount(0)
             self.detail_licenses.setRowCount(0)
             return
@@ -1033,6 +1236,8 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         config = self._cards[selected_id].config
         self.detail_no.setText(config.config_no)
         self.detail_name.setText(config.name)
+        self.detail_created.setText(config.created_at)
+        self.detail_updated.setText(config.updated_at)
 
         devices = self._service.list_config_devices(config.config_id)
         self.detail_devices.setRowCount(0)
@@ -1052,11 +1257,12 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         for license_item in licenses:
             row = self.detail_licenses.rowCount()
             self.detail_licenses.insertRow(row)
-            self.detail_licenses.setItem(row, 0, QtWidgets.QTableWidgetItem(license_item.name))
-            self.detail_licenses.setItem(row, 1, QtWidgets.QTableWidgetItem(license_item.license_key))
+            self.detail_licenses.setItem(row, 0, QtWidgets.QTableWidgetItem(license_item.license_no))
+            self.detail_licenses.setItem(row, 1, QtWidgets.QTableWidgetItem(license_item.name))
+            self.detail_licenses.setItem(row, 2, QtWidgets.QTableWidgetItem(license_item.license_key))
             self.detail_licenses.setItem(
                 row,
-                2,
+                3,
                 QtWidgets.QTableWidgetItem(state_display("LicenseState", license_item.state)),
             )
 
@@ -1136,10 +1342,10 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         y = round(pos.y() / self.GRID_SIZE) * self.GRID_SIZE
         return QtCore.QPointF(x, y)
 
-    def _arrange_cards(self, mode: str) -> None:
+    def _arrange_cards(self, mode: str, sort_key: str = "config_no_asc") -> None:
         self._scroll_canvas_to_origin()
         configs = [c for c in self._service.list_configs() if not self._hidden.get(c.config_id, False)]
-        configs.sort(key=self._config_sort_key)
+        configs = self._sort_configs(configs, sort_key)
         if not configs:
             return
 
@@ -1195,6 +1401,7 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
 
         if self._toast:
             self._toast.show_message(tr("Arranged"))
+        self.log_message(tr("Arranged"))
         self._update_minimap()
 
     def _scroll_canvas_to_origin(self) -> None:
@@ -1209,6 +1416,25 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         if match:
             return (0, int(match.group(1)))
         return (1, config.name.lower())
+
+    def _sort_configs(self, configs: list[Configuration], sort_key: str) -> list[Configuration]:
+        if sort_key == "config_no_desc":
+            return sorted(configs, key=self._config_sort_key, reverse=True)
+        if sort_key == "updated_desc":
+            return sorted(configs, key=self._timestamp_sort_key("updated_at"), reverse=True)
+        if sort_key == "created_desc":
+            return sorted(configs, key=self._timestamp_sort_key("created_at"), reverse=True)
+        return sorted(configs, key=self._config_sort_key)
+
+    def _timestamp_sort_key(self, field: str) -> Callable[[Configuration], datetime]:
+        def _key(config: Configuration) -> datetime:
+            value = getattr(config, field, "") or ""
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return datetime.min
+
+        return _key
 
     def _request_hide_config(self, config_id: int) -> None:
         if self._undo_stack:
@@ -1226,6 +1452,8 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         self._state_store.set_hidden(config_id, True)
         if show_toast and self._toast:
             self._toast.show_message(tr("Config hidden"))
+        if show_toast:
+            self.log_message(tr("Config hidden"))
         self.refresh()
 
     def show_config(self, config_id: int) -> None:
@@ -1233,6 +1461,7 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
         self._state_store.set_hidden(config_id, False)
         if self._toast:
             self._toast.show_message(tr("Config restored"))
+        self.log_message(tr("Config restored"))
         self.refresh()
 
     def _on_view_changed(self) -> None:
@@ -1264,30 +1493,77 @@ class ConfigCanvasWidget(QtWidgets.QWidget):
 
 
 class DevicePanel(QtWidgets.QWidget):
-    def __init__(self, service: AssetService, toast: ToastManager, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        service: AssetService,
+        toast: ToastManager | None,
+        config_service: ConfigService | None = None,
+        log: Callable[[str], None] | None = None,
+        log_debug: Callable[[str], None] | None = None,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self._service = service
+        self._config_service = config_service
         self._toast = toast
         self._devices: list[Device] = []
+        self._in_use_ids: set[int] = set()
+        self._log = log
+        self._log_debug = log_debug
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
+        filter_panel = QtWidgets.QFrame()
+        filter_panel.setObjectName("PaneArea")
+        filter_layout = QtWidgets.QGridLayout(filter_panel)
+        filter_layout.setContentsMargins(8, 8, 8, 8)
+        filter_layout.setHorizontalSpacing(8)
+        filter_layout.setVerticalSpacing(6)
+
+        title = QtWidgets.QLabel(tr("Filters"))
+        title.setObjectName("PaneSectionTitle")
+        filter_layout.addWidget(title, 0, 0, 1, 4)
+
+        filter_layout.addWidget(QtWidgets.QLabel(tr("Search")), 1, 0)
         self.search = QtWidgets.QLineEdit()
         self.search.setPlaceholderText(tr("Search assets"))
         self.search.textChanged.connect(self._apply_filter)
-        self.search.setStyleSheet(
-            "QLineEdit { background-color: #ffffff; border-radius: 6px; padding: 6px 8px; color: #333333; "
-            "border: 1px solid #cfcfcf; }"
-        )
-        layout.addWidget(self.search)
+        filter_layout.addWidget(self.search, 1, 1)
+
+        filter_layout.addWidget(QtWidgets.QLabel(tr("Type")), 1, 2)
+        self.type_filter = QtWidgets.QComboBox()
+        self.type_filter.currentTextChanged.connect(self._apply_filter)
+        filter_layout.addWidget(self.type_filter, 1, 3)
+
+        filter_layout.addWidget(QtWidgets.QLabel(tr("Status")), 2, 0)
+        self.status_filter = QtWidgets.QComboBox()
+        self.status_filter.currentTextChanged.connect(self._apply_filter)
+        filter_layout.addWidget(self.status_filter, 2, 1)
+
+        self.filter_summary = QtWidgets.QLabel(tr("Active Filters") + ": -")
+        filter_layout.addWidget(self.filter_summary, 2, 2, 1, 2)
+
+        button_layout = QtWidgets.QHBoxLayout()
+        search_button = QtWidgets.QPushButton(tr("Search"))
+        search_button.clicked.connect(self._apply_filter)
+        reset_button = QtWidgets.QPushButton(tr("Reset"))
+        reset_button.clicked.connect(self._reset_filters)
+        button_layout.addWidget(search_button)
+        button_layout.addWidget(reset_button)
+        button_layout.addStretch(1)
+        filter_layout.addLayout(button_layout, 3, 0, 1, 4)
+
+        layout.addWidget(filter_panel)
 
         self.device_table = AssetTableWidget("device")
         self.device_table.setColumnCount(5)
         self.device_table.setHorizontalHeaderLabels(
             [tr("Asset No"), tr("Type"), tr("Display Name"), tr("Model"), tr("Version")]
         )
+        self.device_table.setSortingEnabled(True)
+        self.device_table.horizontalHeader().setSortIndicatorShown(True)
         header = self.device_table.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
@@ -1311,12 +1587,61 @@ class DevicePanel(QtWidgets.QWidget):
 
     def refresh(self) -> None:
         self._devices = self._service.list_devices()
+        self._devices.sort(key=lambda device: device.asset_no, reverse=True)
+        if self._config_service:
+            self._in_use_ids = set(self._config_service.list_assigned_device_ids())
+        else:
+            self._in_use_ids = set()
+        self._populate_device_filters()
         self._apply_filter(self.search.text())
 
-    def _apply_filter(self, keyword: str) -> None:
-        keyword = keyword.lower().strip()
+    def set_logger(self, log: Callable[[str], None] | None, log_debug: Callable[[str], None] | None) -> None:
+        self._log = log
+        self._log_debug = log_debug
+
+    def _populate_device_filters(self) -> None:
+        current_type = self.type_filter.currentText() if hasattr(self, "type_filter") else tr("All")
+        current_status = self.status_filter.currentText() if hasattr(self, "status_filter") else tr("All")
+
+        types = sorted({device.device_type for device in self._devices})
+        statuses = sorted({device.state for device in self._devices})
+
+        self.type_filter.blockSignals(True)
+        self.type_filter.clear()
+        self.type_filter.addItem(tr("All"))
+        self.type_filter.addItems(types)
+        if current_type in types:
+            self.type_filter.setCurrentText(current_type)
+        else:
+            self.type_filter.setCurrentText(tr("All"))
+        self.type_filter.blockSignals(False)
+
+        self.status_filter.blockSignals(True)
+        self.status_filter.clear()
+        self.status_filter.addItem(tr("All"))
+        self.status_filter.addItems([state_display("DeviceState", value) for value in statuses])
+        if current_status in [state_display("DeviceState", value) for value in statuses]:
+            self.status_filter.setCurrentText(current_status)
+        else:
+            self.status_filter.setCurrentText(tr("All"))
+        self.status_filter.blockSignals(False)
+
+    def _reset_filters(self) -> None:
+        self.search.clear()
+        self.type_filter.setCurrentText(tr("All"))
+        self.status_filter.setCurrentText(tr("All"))
+        self._apply_filter(self.search.text())
+        if self._log:
+            self._log(tr("Filter reset"))
+
+    def _apply_filter(self, _value: str | None = None) -> None:
+        keyword = self.search.text().lower().strip()
+        selected_type = self.type_filter.currentText()
+        selected_status = self.status_filter.currentText()
+        self.device_table.setSortingEnabled(False)
         self.device_table.setRowCount(0)
         for device in self._devices:
+            in_use = device.device_id in self._in_use_ids
             label = " ".join(
                 [
                     device.asset_no,
@@ -1326,18 +1651,48 @@ class DevicePanel(QtWidgets.QWidget):
                     device.version,
                 ]
             ).lower()
-            if not keyword or keyword in label:
+            type_match = selected_type in (tr("All"), device.device_type)
+            status_match = selected_status in (tr("All"), state_display("DeviceState", device.state))
+            if (not keyword or keyword in label) and type_match and status_match:
                 row = self.device_table.rowCount()
                 self.device_table.insertRow(row)
                 asset_item = QtWidgets.QTableWidgetItem(device.asset_no)
                 asset_item.setData(QtCore.Qt.UserRole, device.device_id)
+                if in_use:
+                    asset_item.setData(IN_USE_ROLE, True)
                 self.device_table.setItem(row, 0, asset_item)
                 self.device_table.setItem(row, 1, QtWidgets.QTableWidgetItem(device.device_type))
                 self.device_table.setItem(row, 2, QtWidgets.QTableWidgetItem(device.display_name or ""))
                 self.device_table.setItem(row, 3, QtWidgets.QTableWidgetItem(device.model))
                 self.device_table.setItem(row, 4, QtWidgets.QTableWidgetItem(device.version))
+                if in_use:
+                    for col in range(self.device_table.columnCount()):
+                        item = self.device_table.item(row, col)
+                        if item is not None:
+                            item.setForeground(QtGui.QColor("#9b9b9b"))
+                            item.setToolTip(tr("In Use"))
 
             self.device_table.resizeColumnsToContents()
+        self.device_table.setSortingEnabled(True)
+        self.device_table.sortItems(0, QtCore.Qt.SortOrder.DescendingOrder)
+        self._update_filter_summary(keyword, selected_type, selected_status)
+        if self._log_debug:
+            self._log_debug(
+                f"Device filters: keyword='{keyword}' type='{selected_type}' status='{selected_status}'"
+            )
+        if self._log:
+            self._log(tr("Device filter applied"))
+
+    def _update_filter_summary(self, keyword: str, selected_type: str, selected_status: str) -> None:
+        parts: list[str] = []
+        if keyword:
+            parts.append(f"{tr('Search')}={keyword}")
+        if selected_type != tr("All"):
+            parts.append(f"{tr('Type')}={selected_type}")
+        if selected_status != tr("All"):
+            parts.append(f"{tr('Status')}={selected_status}")
+        summary = ", ".join(parts) if parts else "-"
+        self.filter_summary.setText(f"{tr('Active Filters')}: {summary}")
 
     def _open_add_device(self) -> None:
         dialog = DeviceCreateDialog(self._service, self)
@@ -1347,28 +1702,72 @@ class DevicePanel(QtWidgets.QWidget):
 
 
 class LicensePanel(QtWidgets.QWidget):
-    def __init__(self, service: AssetService, toast: ToastManager, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        service: AssetService,
+        toast: ToastManager | None,
+        config_service: ConfigService | None = None,
+        log: Callable[[str], None] | None = None,
+        log_debug: Callable[[str], None] | None = None,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self._service = service
+        self._config_service = config_service
         self._toast = toast
         self._licenses: list[License] = []
+        self._in_use_ids: set[int] = set()
+        self._log = log
+        self._log_debug = log_debug
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
+        filter_panel = QtWidgets.QFrame()
+        filter_panel.setObjectName("PaneArea")
+        filter_layout = QtWidgets.QGridLayout(filter_panel)
+        filter_layout.setContentsMargins(8, 8, 8, 8)
+        filter_layout.setHorizontalSpacing(8)
+        filter_layout.setVerticalSpacing(6)
+
+        title = QtWidgets.QLabel(tr("Filters"))
+        title.setObjectName("PaneSectionTitle")
+        filter_layout.addWidget(title, 0, 0, 1, 4)
+
+        filter_layout.addWidget(QtWidgets.QLabel(tr("Search")), 1, 0)
         self.search = QtWidgets.QLineEdit()
         self.search.setPlaceholderText(tr("Search assets"))
         self.search.textChanged.connect(self._apply_filter)
-        self.search.setStyleSheet(
-            "QLineEdit { background-color: #ffffff; border-radius: 6px; padding: 6px 8px; color: #333333; "
-            "border: 1px solid #cfcfcf; }"
-        )
-        layout.addWidget(self.search)
+        filter_layout.addWidget(self.search, 1, 1)
+
+        filter_layout.addWidget(QtWidgets.QLabel(tr("Status")), 1, 2)
+        self.status_filter = QtWidgets.QComboBox()
+        self.status_filter.currentTextChanged.connect(self._apply_filter)
+        filter_layout.addWidget(self.status_filter, 1, 3)
+
+        self.filter_summary = QtWidgets.QLabel(tr("Active Filters") + ": -")
+        filter_layout.addWidget(self.filter_summary, 2, 0, 1, 4)
+
+        button_layout = QtWidgets.QHBoxLayout()
+        search_button = QtWidgets.QPushButton(tr("Search"))
+        search_button.clicked.connect(self._apply_filter)
+        reset_button = QtWidgets.QPushButton(tr("Reset"))
+        reset_button.clicked.connect(self._reset_filters)
+        button_layout.addWidget(search_button)
+        button_layout.addWidget(reset_button)
+        button_layout.addStretch(1)
+        filter_layout.addLayout(button_layout, 3, 0, 1, 4)
+
+        layout.addWidget(filter_panel)
 
         self.license_table = AssetTableWidget("license")
-        self.license_table.setColumnCount(3)
-        self.license_table.setHorizontalHeaderLabels([tr("Subject"), tr("License Key"), tr("Status")])
+        self.license_table.setColumnCount(4)
+        self.license_table.setHorizontalHeaderLabels(
+            [tr("License No"), tr("Subject"), tr("License Key"), tr("Status")]
+        )
+        self.license_table.setSortingEnabled(True)
+        self.license_table.horizontalHeader().setSortIndicatorShown(True)
         header = self.license_table.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
@@ -1392,27 +1791,90 @@ class LicensePanel(QtWidgets.QWidget):
 
     def refresh(self) -> None:
         self._licenses = self._service.list_licenses()
+        self._licenses.sort(key=lambda license_item: license_item.license_no, reverse=True)
+        if self._config_service:
+            self._in_use_ids = set(self._config_service.list_assigned_license_ids())
+        else:
+            self._in_use_ids = set()
+        self._populate_license_filters()
         self._apply_filter(self.search.text())
 
-    def _apply_filter(self, keyword: str) -> None:
-        keyword = keyword.lower().strip()
+    def set_logger(self, log: Callable[[str], None] | None, log_debug: Callable[[str], None] | None) -> None:
+        self._log = log
+        self._log_debug = log_debug
+
+    def _populate_license_filters(self) -> None:
+        current_status = self.status_filter.currentText() if hasattr(self, "status_filter") else tr("All")
+        statuses = sorted({license_item.state for license_item in self._licenses})
+
+        self.status_filter.blockSignals(True)
+        self.status_filter.clear()
+        self.status_filter.addItem(tr("All"))
+        display_values = [state_display("LicenseState", value) for value in statuses]
+        self.status_filter.addItems(display_values)
+        if current_status in display_values:
+            self.status_filter.setCurrentText(current_status)
+        else:
+            self.status_filter.setCurrentText(tr("All"))
+        self.status_filter.blockSignals(False)
+
+    def _reset_filters(self) -> None:
+        self.search.clear()
+        self.status_filter.setCurrentText(tr("All"))
+        self._apply_filter(self.search.text())
+        if self._log:
+            self._log(tr("Filter reset"))
+
+    def _apply_filter(self, _value: str | None = None) -> None:
+        keyword = self.search.text().lower().strip()
+        selected_status = self.status_filter.currentText()
+        self.license_table.setSortingEnabled(False)
         self.license_table.setRowCount(0)
         for license_item in self._licenses:
-            label = license_item.name
-            if not keyword or keyword in label.lower():
+            in_use = license_item.license_id in self._in_use_ids
+            label = " ".join([license_item.license_no, license_item.name, license_item.license_key]).lower()
+            status_match = selected_status in (tr("All"), state_display("LicenseState", license_item.state))
+            if (not keyword or keyword in label) and status_match:
                 row = self.license_table.rowCount()
                 self.license_table.insertRow(row)
-                name_item = QtWidgets.QTableWidgetItem(license_item.name)
-                name_item.setData(QtCore.Qt.UserRole, license_item.license_id)
-                self.license_table.setItem(row, 0, name_item)
-                self.license_table.setItem(row, 1, QtWidgets.QTableWidgetItem(license_item.license_key))
+                no_item = QtWidgets.QTableWidgetItem(license_item.license_no)
+                no_item.setData(QtCore.Qt.UserRole, license_item.license_id)
+                if in_use:
+                    no_item.setData(IN_USE_ROLE, True)
+                self.license_table.setItem(row, 0, no_item)
+                self.license_table.setItem(row, 1, QtWidgets.QTableWidgetItem(license_item.name))
+                self.license_table.setItem(row, 2, QtWidgets.QTableWidgetItem(license_item.license_key))
                 self.license_table.setItem(
                     row,
-                    2,
+                    3,
                     QtWidgets.QTableWidgetItem(state_display("LicenseState", license_item.state)),
                 )
+                if in_use:
+                    for col in range(self.license_table.columnCount()):
+                        item = self.license_table.item(row, col)
+                        if item is not None:
+                            item.setForeground(QtGui.QColor("#9b9b9b"))
+                            item.setToolTip(tr("In Use"))
 
         self.license_table.resizeColumnsToContents()
+        self.license_table.setSortingEnabled(True)
+        self.license_table.sortItems(0, QtCore.Qt.SortOrder.DescendingOrder)
+        self._update_filter_summary(keyword, selected_status)
+        if self._log_debug:
+            self._log_debug(
+                f"License filters: keyword='{keyword}' status='{selected_status}'"
+            )
+        if self._log:
+            self._log(tr("License filter applied"))
+
+    def _update_filter_summary(self, keyword: str, selected_status: str) -> None:
+        parts: list[str] = []
+        if keyword:
+            parts.append(f"{tr('Search')}={keyword}")
+        if selected_status != tr("All"):
+            parts.append(f"{tr('Status')}={selected_status}")
+        summary = ", ".join(parts) if parts else "-"
+        self.filter_summary.setText(f"{tr('Active Filters')}: {summary}")
 
     def _open_add_license(self) -> None:
         dialog = LicenseCreateDialog(self._service, self)
@@ -1499,18 +1961,21 @@ class LicenseCreateDialog(QtWidgets.QDialog):
         form = QtWidgets.QGridLayout()
 
         self.name = QtWidgets.QLineEdit()
+        self.license_no = QtWidgets.QLineEdit()
         self.license_key = QtWidgets.QLineEdit()
         self.state = QtWidgets.QComboBox()
         self.state.addItems(states_display("LicenseState", ["active", "expired", "retired"]))
         self.note = QtWidgets.QPlainTextEdit()
         self.note.setFixedHeight(80)
 
-        form.addWidget(QtWidgets.QLabel(tr("Subject")), 0, 0)
-        form.addWidget(self.name, 0, 1)
-        form.addWidget(QtWidgets.QLabel(tr("License Key")), 0, 2)
-        form.addWidget(self.license_key, 0, 3)
-        form.addWidget(QtWidgets.QLabel(tr("Status")), 1, 0)
-        form.addWidget(self.state, 1, 1)
+        form.addWidget(QtWidgets.QLabel(tr("License No")), 0, 0)
+        form.addWidget(self.license_no, 0, 1)
+        form.addWidget(QtWidgets.QLabel(tr("Subject")), 0, 2)
+        form.addWidget(self.name, 0, 3)
+        form.addWidget(QtWidgets.QLabel(tr("License Key")), 1, 0)
+        form.addWidget(self.license_key, 1, 1)
+        form.addWidget(QtWidgets.QLabel(tr("Status")), 1, 2)
+        form.addWidget(self.state, 1, 3)
         form.addWidget(QtWidgets.QLabel(tr("Description")), 2, 0)
         form.addWidget(self.note, 2, 1, 1, 3)
 
@@ -1524,6 +1989,10 @@ class LicenseCreateDialog(QtWidgets.QDialog):
         layout.addWidget(buttons)
 
     def _submit(self) -> None:
+        license_no = self.license_no.text().strip()
+        if not license_no:
+            QtWidgets.QMessageBox.warning(self, tr("Error"), tr("License No is required"))
+            return
         name = self.name.text().strip()
         if not name:
             QtWidgets.QMessageBox.warning(self, tr("Error"), tr("Subject is required"))
@@ -1532,6 +2001,7 @@ class LicenseCreateDialog(QtWidgets.QDialog):
         state_value = state_to_physical("LicenseState", self.state.currentText(), "active")
         note = self.note.toPlainText().strip()
         self._service.add_license(
+            license_no=license_no,
             name=name,
             license_key=license_key,
             state=state_value,
@@ -1541,35 +2011,60 @@ class LicenseCreateDialog(QtWidgets.QDialog):
 
 
 class AssetPaletteWidget(QtWidgets.QWidget):
-    def __init__(self, service: AssetService, toast: ToastManager, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        service: AssetService,
+        config_service: ConfigService,
+        toast: ToastManager,
+        log: Callable[[str], None] | None = None,
+        log_debug: Callable[[str], None] | None = None,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self._service = service
+        self._config_service = config_service
         self._toast = toast
+        self._log = log
+        self._log_debug = log_debug
 
+        self.setObjectName("PaneArea")
         self.setMinimumWidth(360)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         header = _build_pane_title(tr("Asset Palette"))
         layout.addWidget(header)
 
+        content = QtWidgets.QWidget()
+        content_layout = QtWidgets.QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 12, 16, 16)
+        content_layout.setSpacing(12)
+
         device_label = QtWidgets.QLabel(tr("Devices"))
         device_label.setObjectName("PaneSectionTitle")
-        layout.addWidget(device_label)
-        self.device_panel = DevicePanel(service, toast)
-        layout.addWidget(self.device_panel, 1)
+        content_layout.addWidget(device_label)
+        self.device_panel = DevicePanel(service, toast, config_service, log=log, log_debug=log_debug)
+        content_layout.addWidget(self.device_panel, 1)
 
         license_label = QtWidgets.QLabel(tr("Licenses"))
         license_label.setObjectName("PaneSectionTitle")
-        layout.addWidget(license_label)
-        self.license_panel = LicensePanel(service, toast)
-        layout.addWidget(self.license_panel, 1)
+        content_layout.addWidget(license_label)
+        self.license_panel = LicensePanel(service, toast, config_service, log=log, log_debug=log_debug)
+        content_layout.addWidget(self.license_panel, 1)
+
+        layout.addWidget(content)
 
     def refresh(self) -> None:
         self.device_panel.refresh()
         self.license_panel.refresh()
+
+    def set_logger(self, log: Callable[[str], None] | None, log_debug: Callable[[str], None] | None) -> None:
+        self._log = log
+        self._log_debug = log_debug
+        self.device_panel.set_logger(log, log_debug)
+        self.license_panel.set_logger(log, log_debug)
 
 
 class DesktopApp(QtWidgets.QMainWindow):
@@ -1598,7 +2093,7 @@ class DesktopApp(QtWidgets.QMainWindow):
         splitter.setHandleWidth(2)
         splitter.setStyleSheet("QSplitter::handle { background-color: #d5d5d5; }")
 
-        self.asset_palette = AssetPaletteWidget(self.asset_service, self.toast)
+        self.asset_palette = AssetPaletteWidget(self.asset_service, self.config_service, self.toast)
         self.canvas = ConfigCanvasWidget(
             self.config_service,
             self._refresh_assets,
@@ -1607,6 +2102,7 @@ class DesktopApp(QtWidgets.QMainWindow):
             undo_stack=self.undo_stack,
             toast=self.toast,
         )
+        self.asset_palette.set_logger(self.canvas.log_message, self.canvas.log_debug)
 
         self.actions = UIActions(
             self.asset_service,
@@ -1614,6 +2110,7 @@ class DesktopApp(QtWidgets.QMainWindow):
             self._refresh_all,
             self.toast,
             self.undo_stack,
+            log=self.canvas.log_message,
         )
         self.canvas.set_actions(self.actions, self.undo_stack, self.toast)
 
@@ -1660,11 +2157,19 @@ class DesktopApp(QtWidgets.QMainWindow):
                 font-size: 14px;
                 qproperty-alignment: AlignLeft | AlignVCenter;
             }
+            QFrame#PaneTitleBar QLabel {
+                color: #ffffff;
+            }
             QLabel#PaneSectionTitle {
                 color: #444444;
                 font-weight: 600;
                 font-size: 12px;
                 margin-top: 2px;
+            }
+            QWidget#PaneArea {
+                background-color: #f8f8f8;
+                border: 1px solid #d5d5d5;
+                border-radius: 6px;
             }
             QTabWidget::pane { border: 1px solid #d5d5d5; }
             QTabBar::tab {

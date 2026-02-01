@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
+
 
 def _ensure_src_path() -> None:
     root = os.path.dirname(os.path.dirname(__file__))
@@ -50,6 +52,7 @@ def test_license_create_and_list() -> None:
     asset_service, _ = _build_services()
 
     license_item = asset_service.add_license(
+        license_no="LIC-900",
         name="Spec License",
         license_key="LIC-900",
         state="active",
@@ -64,6 +67,8 @@ def test_config_create_rename_list() -> None:
     _, config_service = _build_services()
 
     config = config_service.create_config(name="Config A")
+    assert config.created_at
+    assert config.updated_at
     config_service.rename_config(config.config_id, "Config A1")
 
     configs = config_service.list_configs()
@@ -96,10 +101,31 @@ def test_assign_and_move_device_between_configs() -> None:
     assert any(d.device_id == device.device_id for d in devices_b)
 
 
+def test_assign_device_rejects_second_config() -> None:
+    asset_service, config_service = _build_services()
+
+    device = asset_service.add_device(
+        asset_no="DEV-902",
+        display_name="Unique Device",
+        device_type="Laptop",
+        model="Model Z",
+        version="v3",
+        state="active",
+        note="spec",
+    )
+    config_a = config_service.create_config(name="Config A")
+    config_b = config_service.create_config(name="Config B")
+
+    config_service.assign_device(config_a.config_id, device.device_id)
+    with pytest.raises(ValueError):
+        config_service.assign_device(config_b.config_id, device.device_id)
+
+
 def test_assign_and_unassign_license() -> None:
     asset_service, config_service = _build_services()
 
     license_item = asset_service.add_license(
+        license_no="LIC-901",
         name="Spec License 2",
         license_key="LIC-901",
         state="active",

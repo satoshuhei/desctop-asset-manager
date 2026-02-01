@@ -25,6 +25,18 @@ class ConfigService:
     def list_config_licenses(self, config_id: int) -> List[License]:
         return self._config_repo.list_licenses(config_id)
 
+    def list_assigned_device_ids(self) -> List[int]:
+        return self._config_repo.list_assigned_device_ids()
+
+    def list_assigned_license_ids(self) -> List[int]:
+        return self._config_repo.list_assigned_license_ids()
+
+    def get_device_owner(self, device_id: int) -> int | None:
+        return self._config_repo.get_device_owner(device_id)
+
+    def get_license_owner(self, license_id: int) -> int | None:
+        return self._config_repo.get_license_owner(license_id)
+
     def assign_device(self, config_id: int, device_id: int) -> None:
         self._config_repo.assign_device(config_id, device_id)
 

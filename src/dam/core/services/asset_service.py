@@ -34,8 +34,9 @@ class AssetService:
     def list_devices(self) -> List[Device]:
         return self._device_repo.list_all()
 
-    def add_license(self, name: str, license_key: str, state: str, note: str) -> License:
+    def add_license(self, license_no: str, name: str, license_key: str, state: str, note: str) -> License:
         return self._license_repo.create(
+            license_no=license_no,
             name=name,
             license_key=license_key,
             state=state,
