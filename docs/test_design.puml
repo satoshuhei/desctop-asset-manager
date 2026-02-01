@@ -6,15 +6,24 @@ package "Test Suite" {
   class TestAppStartup as "test_app_startup.py"
   class TestDbSmoke as "test_db_smoke.py"
   class TestImports as "test_imports.py"
+  class TestDetailSpecs as "test_detail_specs.py"
 }
 
 package "Coverage" {
   class UIStartup
   class SampleData
   class ImportPaths
+  class ConfigNoGeneration
+  class LicenseReassign
+  class UIStatePersistence
+  class CanvasStatePersistence
 }
 
 TestAppStartup --> UIStartup : verifies
 TestDbSmoke --> SampleData : verifies
 TestImports --> ImportPaths : verifies
+TestDetailSpecs --> ConfigNoGeneration : verifies
+TestDetailSpecs --> LicenseReassign : verifies
+TestDetailSpecs --> UIStatePersistence : verifies
+TestDetailSpecs --> CanvasStatePersistence : verifies
 @enduml

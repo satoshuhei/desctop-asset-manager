@@ -12,8 +12,16 @@ def _seed_sample_data(conn: sqlite3.Connection) -> None:
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                ("DEV-001", "Office PC", "PC", "OptiPlex 7090", "2023", "active", "sample"),
-                ("DEV-002", "Meeting Laptop", "Laptop", "ThinkPad X1", "Gen 10", "active", "sample"),
+                ("DEV-001", "ECU解析ワークステーション", "PC", "Precision 3660", "2024", "active", "sample"),
+                ("DEV-002", "車載ログ収集ノート", "Laptop", "ThinkPad P1", "Gen 6", "active", "sample"),
+                ("DEV-003", "CANインターフェース", "Interface", "Vector VN1610", "v2", "active", "sample"),
+                ("DEV-004", "CAN-FDインターフェース", "Interface", "Vector VN1630A", "v1", "active", "sample"),
+                ("DEV-005", "J2534パススルー", "Interface", "DrewTech MongoosePro", "v3", "active", "sample"),
+                ("DEV-006", "車載電源供給", "Power", "BK Precision 1901B", "2022", "active", "sample"),
+                ("DEV-007", "オシロスコープ", "Instrument", "Keysight DSOX1102G", "2021", "active", "sample"),
+                ("DEV-008", "車載ネットワークアダプタ", "Interface", "Kvaser Leaf Light", "v2", "active", "sample"),
+                ("DEV-009", "ECUベンチハーネス", "Harness", "Custom Bench", "2024", "active", "sample"),
+                ("DEV-010", "ECUリプロ/フラッシャ", "Programmer", "ETAS ES953", "v2", "active", "sample"),
             ],
         )
 
@@ -25,9 +33,68 @@ def _seed_sample_data(conn: sqlite3.Connection) -> None:
             VALUES (?, ?, ?, ?)
             """,
             [
-                ("Office 365", "O365-SAMPLE-001", "active", "sample"),
-                ("Adobe CC", "ADCC-SAMPLE-001", "active", "sample"),
+                ("CANape", "CANAPE-SAMPLE-001", "active", "sample"),
+                ("CANalyzer", "CANA-SAMPLE-002", "active", "sample"),
+                ("CANoe", "CANOE-SAMPLE-003", "active", "sample"),
+                ("INCA Base", "INCA-SAMPLE-004", "active", "sample"),
+                ("INCA AddOn ASAP2", "INCA-SAMPLE-005", "active", "sample"),
+                ("Vector vMeasure", "VMEASURE-SAMPLE-006", "active", "sample"),
+                ("ETAS MDA", "ETAS-SAMPLE-007", "active", "sample"),
+                ("ETAS ASCMO", "ETAS-SAMPLE-008", "active", "sample"),
+                ("Diag Studio", "DIAG-SAMPLE-009", "active", "sample"),
+                ("Flash Tool", "FLASH-SAMPLE-010", "active", "sample"),
             ],
+        )
+
+    config_count = conn.execute("SELECT COUNT(*) FROM configurations").fetchone()[0]
+    if config_count == 0:
+        conn.executemany(
+            """
+            INSERT INTO configurations (config_no, name, note)
+            VALUES (?, ?, ?)
+            """,
+            [
+                ("CNFG-001", "ECU解析-エンジン", "sample"),
+                ("CNFG-002", "ECU解析-トランスミッション", "sample"),
+                ("CNFG-003", "ECU解析-ブレーキ", "sample"),
+                ("CNFG-004", "ECU解析-ADAS", "sample"),
+                ("CNFG-005", "ECU解析-ボディ", "sample"),
+                ("CNFG-006", "ECU解析-インフォテインメント", "sample"),
+                ("CNFG-007", "ECU解析-電源管理", "sample"),
+                ("CNFG-008", "ECU解析-テレマティクス", "sample"),
+            ],
+        )
+
+    config_device_count = conn.execute("SELECT COUNT(*) FROM config_devices").fetchone()[0]
+    config_license_count = conn.execute("SELECT COUNT(*) FROM config_licenses").fetchone()[0]
+    if config_device_count == 0 and config_license_count == 0:
+        config_ids = [row[0] for row in conn.execute("SELECT config_id FROM configurations ORDER BY config_id")]
+        device_ids = [row[0] for row in conn.execute("SELECT device_id FROM devices ORDER BY device_id")]
+        license_ids = [row[0] for row in conn.execute("SELECT license_id FROM licenses ORDER BY license_id")]
+
+        device_pairs = []
+        license_pairs = []
+        for index, config_id in enumerate(config_ids):
+            first_device = device_ids[(index * 2) % len(device_ids)]
+            second_device = device_ids[(index * 2 + 1) % len(device_ids)]
+            device_pairs.extend([(config_id, first_device), (config_id, second_device)])
+            license_id = license_ids[index % len(license_ids)]
+            license_pairs.append((config_id, license_id, "sample"))
+
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO config_devices (config_id, device_id)
+            VALUES (?, ?)
+            """,
+            device_pairs,
+        )
+        conn.executemany(
+            """
+            INSERT INTO config_licenses (config_id, license_id, note)
+            VALUES (?, ?, ?)
+            ON CONFLICT(license_id) DO UPDATE SET config_id = excluded.config_id
+            """,
+            license_pairs,
         )
 
 
@@ -64,11 +131,13 @@ def init_db(db_path: str = ":memory:") -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS configurations (
             config_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            config_no TEXT,
             name TEXT NOT NULL,
             note TEXT NOT NULL DEFAULT ''
         )
         """
     )
+    _ensure_config_no(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS config_devices (
@@ -100,3 +169,16 @@ def init_db(db_path: str = ":memory:") -> sqlite3.Connection:
     _seed_sample_data(conn)
     conn.commit()
     return conn
+
+
+def _ensure_config_no(conn: sqlite3.Connection) -> None:
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(configurations)")]
+    if "config_no" not in columns:
+        conn.execute("ALTER TABLE configurations ADD COLUMN config_no TEXT")
+    conn.execute(
+        """
+        UPDATE configurations
+        SET config_no = printf('CNFG-%03d', config_id)
+        WHERE config_no IS NULL OR config_no = ''
+        """
+    )

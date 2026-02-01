@@ -10,6 +10,10 @@ class DeviceRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
+    @staticmethod
+    def _row_to_device(row: tuple) -> Device:
+        return Device(*row)
+
     def create(
         self,
         asset_no: str,
@@ -38,7 +42,7 @@ class DeviceRepository:
             ORDER BY device_id DESC
             """
         )
-        return [Device(*row) for row in cur.fetchall()]
+        return [self._row_to_device(row) for row in cur.fetchall()]
 
     def get_by_id(self, device_id: int) -> Device:
         cur = self._conn.execute(
@@ -52,12 +56,16 @@ class DeviceRepository:
         row = cur.fetchone()
         if row is None:
             raise ValueError("Device not found")
-        return Device(*row)
+        return self._row_to_device(row)
 
 
 class LicenseRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+
+    @staticmethod
+    def _row_to_license(row: tuple) -> License:
+        return License(*row)
 
     def create(self, name: str, license_key: str, state: str, note: str) -> License:
         cur = self._conn.execute(
@@ -78,7 +86,7 @@ class LicenseRepository:
             ORDER BY license_id DESC
             """
         )
-        return [License(*row) for row in cur.fetchall()]
+        return [self._row_to_license(row) for row in cur.fetchall()]
 
     def get_by_id(self, license_id: int) -> License:
         cur = self._conn.execute(
@@ -92,20 +100,27 @@ class LicenseRepository:
         row = cur.fetchone()
         if row is None:
             raise ValueError("License not found")
-        return License(*row)
+        return self._row_to_license(row)
 
 
 class ConfigRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def create(self, name: str, note: str) -> Configuration:
+    @staticmethod
+    def _row_to_config(row: tuple) -> Configuration:
+        return Configuration(*row)
+
+    def create(self, name: str, note: str, config_no: Optional[str] = None) -> Configuration:
+        if config_no is None:
+            next_id = self._conn.execute("SELECT COALESCE(MAX(config_id), 0) + 1 FROM configurations").fetchone()[0]
+            config_no = f"CNFG-{int(next_id):03d}"
         cur = self._conn.execute(
             """
-            INSERT INTO configurations (name, note)
-            VALUES (?, ?)
+            INSERT INTO configurations (config_no, name, note)
+            VALUES (?, ?, ?)
             """,
-            (name, note),
+            (config_no, name, note),
         )
         self._conn.commit()
         return self.get_by_id(int(cur.lastrowid))
@@ -113,17 +128,17 @@ class ConfigRepository:
     def list_all(self) -> List[Configuration]:
         cur = self._conn.execute(
             """
-            SELECT config_id, name, note
+            SELECT config_id, config_no, name, note
             FROM configurations
             ORDER BY config_id ASC
             """
         )
-        return [Configuration(*row) for row in cur.fetchall()]
+        return [self._row_to_config(row) for row in cur.fetchall()]
 
     def get_by_id(self, config_id: int) -> Configuration:
         cur = self._conn.execute(
             """
-            SELECT config_id, name, note
+            SELECT config_id, config_no, name, note
             FROM configurations
             WHERE config_id = ?
             """,
@@ -132,7 +147,7 @@ class ConfigRepository:
         row = cur.fetchone()
         if row is None:
             raise ValueError("Configuration not found")
-        return Configuration(*row)
+        return self._row_to_config(row)
 
     def rename(self, config_id: int, name: str) -> None:
         self._conn.execute(

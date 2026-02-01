@@ -1,0 +1,77 @@
+# UI label mapping: key = display text
+
+# Common
+Filters = フィルター
+Search = 検索
+Tickets = チケット
+Subject = 件名
+Status = ステータス
+Description = 説明
+Error = エラー
+Remove = 削除
+Devices = デバイス
+Licenses = ライセンス
+
+# Device list
+Asset No = 資産番号
+Type = 種別
+Model = 型番
+Version = バージョン
+Display Name = 表示名
+New Device Ticket = 新規デバイス
+Create Device = デバイス追加
+Asset No is required = 資産番号は必須です
+
+# License list
+License Key = ライセンスキー
+New License Ticket = 新規ライセンス
+Create License = ライセンス追加
+Subject is required = 件名は必須です
+Delete = 削除
+Move = 移動
+Undo = 元に戻す
+Device assigned = デバイスを割り当てました
+Device moved = デバイスを移動しました
+Device unassigned = デバイスの割当を解除しました
+License assigned = ライセンスを割り当てました
+License unassigned = ライセンスの割当を解除しました
+Device created = デバイスを作成しました
+License created = ライセンスを作成しました
+Config created = 構成を作成しました
+Config renamed = 構成名を変更しました
+Config hidden = 構成を非表示にしました
+Config restored = 構成を復元しました
+Position saved = 配置を保存しました
+Arrange: Column = 縦に整列
+Arrange: Row = 横に整列
+Arranged = 整列しました
+
+# Config board (Tk)
+Rename = 名前変更
+ID: {id} = ID: {id}
+Configuration = 構成
+Configuration name = 構成名
+Config No = 構成番号
+Create = 作成
+Update = 更新
+New configuration name = 新しい構成名
++ Configuration = + 構成
+
+# Qt canvas
+Configuration Canvas = 構成キャンバス
+Configuration Details = 構成詳細
++ New Config = + 新規構成
+Drop assets here = ここにアセットをドロップ
+New Configuration = 新規構成
+Asset Palette = アセットパレット
+Search assets = アセットを検索
+Desktop Asset Manager = デスクトップ資産管理
+
+# States
+DeviceState.active = 稼働中
+DeviceState.standby = 待機中
+DeviceState.maintenance = メンテナンス中
+DeviceState.retired = 廃止
+LicenseState.active = 有効
+LicenseState.expired = 期限切れ
+LicenseState.retired = 廃止

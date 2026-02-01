@@ -28,6 +28,7 @@ class License:
 @dataclass(frozen=True)
 class Configuration:
     config_id: int
+    config_no: str
     name: str
     note: str
 

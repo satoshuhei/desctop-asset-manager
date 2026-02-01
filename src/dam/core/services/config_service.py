@@ -10,8 +10,8 @@ class ConfigService:
     def __init__(self, config_repo: ConfigRepository) -> None:
         self._config_repo = config_repo
 
-    def create_config(self, name: str, note: str = "") -> Configuration:
-        return self._config_repo.create(name=name, note=note)
+    def create_config(self, name: str, note: str = "", config_no: str | None = None) -> Configuration:
+        return self._config_repo.create(name=name, note=note, config_no=config_no)
 
     def list_configs(self) -> List[Configuration]:
         return self._config_repo.list_all()

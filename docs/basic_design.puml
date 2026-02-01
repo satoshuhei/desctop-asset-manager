@@ -4,15 +4,28 @@ skinparam shadowing false
 
 package "UI" {
   class DesktopApp
-  class DeviceListView
-  class LicenseListView
-  class ConfigBoard
-  class ConfigCard
+  class AssetPaletteWidget
+  class DevicePanel
+  class LicensePanel
+  class ConfigCanvasWidget
+  class ConfigGraphicsView
+  class ConfigCardWidget
+  class ConfigCardProxy
+  class MiniMapView
+  class UIActions
+  class BasicActions
+  class UndoStack
+  class ToastManager
 }
 
 package "Services" {
   class AssetService
   class ConfigService
+}
+
+package "UI State" {
+  class UIStateStore
+  class CanvasState
 }
 
 package "Repositories" {
@@ -22,24 +35,39 @@ package "Repositories" {
 }
 
 package "Infra" {
-  class DB as "init_db"
+  class AppDB as "init_db"
+  class SQLite
 }
 
-DesktopApp --> DeviceListView
-DesktopApp --> LicenseListView
-DesktopApp --> ConfigBoard
-ConfigBoard --> ConfigCard
+DesktopApp --> AssetPaletteWidget
+DesktopApp --> DevicePanel
+DesktopApp --> LicensePanel
+DesktopApp --> ConfigCanvasWidget
+DesktopApp --> UIActions
+DesktopApp --> UndoStack
+DesktopApp --> ToastManager
 
-DeviceListView --> AssetService
-LicenseListView --> AssetService
-ConfigBoard --> ConfigService
-ConfigCard --> ConfigService
+AssetPaletteWidget --> AssetService
+DevicePanel --> AssetService
+LicensePanel --> AssetService
+
+ConfigCanvasWidget --> ConfigGraphicsView
+ConfigCanvasWidget --> ConfigCardWidget
+ConfigCanvasWidget --> ConfigCardProxy
+ConfigCanvasWidget --> MiniMapView
+ConfigCanvasWidget --> UIStateStore
+ConfigCanvasWidget --> ConfigService
+ConfigCardWidget --> UIActions
+ConfigCardWidget --> ConfigService
+BasicActions ..|> UIActions
 
 AssetService --> DeviceRepository
 AssetService --> LicenseRepository
 ConfigService --> ConfigRepository
 
-DeviceRepository --> DB
-LicenseRepository --> DB
-ConfigRepository --> DB
+AppDB --> SQLite
+DeviceRepository --> SQLite
+LicenseRepository --> SQLite
+ConfigRepository --> SQLite
+UIStateStore --> SQLite
 @enduml

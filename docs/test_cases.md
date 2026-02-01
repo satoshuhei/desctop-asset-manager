@@ -46,3 +46,41 @@
   3. Verify the stored position changed.
 - Expected: The position for Config A updates after drag.
 - Automated: tests/test_ui_config_board_drag.py::test_config_board_drag_updates_position
+
+## TC-006: Config No auto generation
+- Purpose: Verify configuration numbers are generated from the next config id.
+- Preconditions: Initialized DB with existing configurations.
+- Steps:
+  1. Query the next config id from the DB.
+  2. Create a configuration without specifying a config number.
+  3. Compare the generated config number to the expected format.
+- Expected: config_no equals CNFG-XXX for the next id.
+- Automated: tests/test_detail_specs.py::test_config_no_auto_generation
+
+## TC-007: License assignment moves between configurations
+- Purpose: Verify a license can belong to only one configuration at a time.
+- Preconditions: Two configurations and one license.
+- Steps:
+  1. Assign the license to Config A.
+  2. Assign the same license to Config B.
+  3. List licenses for both configs.
+- Expected: The license appears only under Config B.
+- Automated: tests/test_detail_specs.py::test_assign_license_moves_to_new_config
+
+## TC-008: UI state position persistence
+- Purpose: Verify canvas positions and hidden state are persisted.
+- Preconditions: Writable UI state DB path.
+- Steps:
+  1. Save hidden flag and position for configs.
+  2. Reload the store and read positions.
+- Expected: Stored positions and hidden flags are preserved.
+- Automated: tests/test_detail_specs.py::test_ui_state_store_positions_and_hidden
+
+## TC-009: UI canvas state roundtrip
+- Purpose: Verify zoom/center state persists between sessions.
+- Preconditions: Writable UI state DB path.
+- Steps:
+  1. Save a canvas state.
+  2. Reload the store and read the canvas state.
+- Expected: The loaded canvas state matches the saved state.
+- Automated: tests/test_detail_specs.py::test_ui_state_store_canvas_state_roundtrip

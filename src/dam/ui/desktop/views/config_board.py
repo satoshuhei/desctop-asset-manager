@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 
 from dam.core.domain.models import Configuration, Device, License
 from dam.core.services.config_service import ConfigService
+from dam.ui.i18n import tr
 
 
 class ConfigCard(ttk.LabelFrame):
@@ -26,18 +27,18 @@ class ConfigCard(ttk.LabelFrame):
         header.pack(fill="x", pady=(2, 4))
         self.drag_handle = ttk.Label(header, text="⠿", style="Handle.TLabel", cursor="fleur")
         self.drag_handle.pack(side="left", padx=(4, 2))
-        ttk.Label(header, text=f"ID: {config.config_id}").pack(side="left", padx=4)
-        ttk.Button(header, text="Rename", command=self._rename).pack(side="right", padx=4)
+        ttk.Label(header, text=tr("ID: {id}", id=config.config_id)).pack(side="left", padx=4)
+        ttk.Button(header, text=tr("Rename"), command=self._rename).pack(side="right", padx=4)
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True)
 
-        device_frame = ttk.LabelFrame(body, text="Devices")
+        device_frame = ttk.LabelFrame(body, text=tr("Devices"))
         device_frame.pack(fill="both", expand=True, padx=4, pady=4)
         self.device_listbox = tk.Listbox(device_frame, height=6)
         self.device_listbox.pack(fill="both", expand=True, padx=4, pady=4)
 
-        license_frame = ttk.LabelFrame(body, text="Licenses")
+        license_frame = ttk.LabelFrame(body, text=tr("Licenses"))
         license_frame.pack(fill="both", expand=True, padx=4, pady=4)
         self.license_listbox = tk.Listbox(license_frame, height=6)
         self.license_listbox.pack(fill="both", expand=True, padx=4, pady=4)
@@ -65,7 +66,7 @@ class ConfigCard(ttk.LabelFrame):
             self.license_listbox.insert(tk.END, license_item.name)
 
     def _rename(self) -> None:
-        name = simpledialog.askstring("Rename", "New configuration name", parent=self)
+        name = simpledialog.askstring(tr("Rename"), tr("New configuration name"), parent=self)
         if not name:
             return
         self._service.rename_config(self.config_obj.config_id, name)
@@ -121,7 +122,7 @@ class ConfigBoard(ttk.Frame):
 
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=8, pady=6)
-        ttk.Button(toolbar, text="+ Configuration", command=self._add_config).pack(side="left")
+        ttk.Button(toolbar, text=tr("+ Configuration"), command=self._add_config).pack(side="left")
 
         self.canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0, background="#f5f7fb")
         self.v_scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
@@ -158,14 +159,14 @@ class ConfigBoard(ttk.Frame):
             self._on_refresh()
 
     def _add_config(self) -> None:
-        name = simpledialog.askstring("Configuration", "Configuration name", parent=self)
+        name = simpledialog.askstring(tr("Configuration"), tr("Configuration name"), parent=self)
         if not name:
             return
         try:
             self._service.create_config(name=name)
             self.refresh()
         except Exception as exc:  # pragma: no cover - UI fallback
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror(tr("Error"), str(exc))
 
     def _default_position(self, index: int) -> tuple[int, int]:
         col = index % 2
