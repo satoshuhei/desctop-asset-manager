@@ -1,0 +1,10 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "C:/kojin/090_daiku/repos/desctop-asset-manager/.venv/Scripts/python.exe": true,
+        "git -C C:/kojin/090_daiku/repos/desctop-asset-manager": true,
+        "pytest": true,
+        "git add": true,
+        "git commit": true,
+        "git push": true
+    }
+}

@@ -1,0 +1,50 @@
+@startuml
+allowmixing
+!theme plain
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+title Basic Design - System Structure
+
+package "UI" {
+  class DesktopApp
+  class AssetPaletteWidget
+  class ConfigCanvasWidget
+  class LogPanel
+}
+
+package "Services" {
+  class AssetService
+  class ConfigService
+}
+
+package "Repositories" {
+  class DeviceRepository
+  class LicenseRepository
+  class ConfigRepository
+}
+
+database "SQLite" as DB
+
+DesktopApp --> AssetPaletteWidget
+DesktopApp --> ConfigCanvasWidget
+DesktopApp --> LogPanel
+
+AssetPaletteWidget --> AssetService
+ConfigCanvasWidget --> ConfigService
+
+AssetService --> DeviceRepository
+AssetService --> LicenseRepository
+ConfigService --> ConfigRepository
+
+DeviceRepository --> DB
+LicenseRepository --> DB
+ConfigRepository --> DB
+
+note right of ConfigRepository
+  In-use constraint:
+  assets can belong to at most
+  one configuration
+end note
+
+@enduml

@@ -1,0 +1,33 @@
+@startuml
+!theme plain
+skinparam shadowing false
+
+actor User
+participant LicensePanel
+participant AssetService
+participant ConfigCanvasWidget
+participant UIActions
+participant ConfigService
+participant ConfigRepository
+
+User -> LicensePanel: startDrag(license_id)
+LicensePanel -> LicensePanel: in_use_ids check
+alt in-use
+  LicensePanel --> User: drag blocked
+else available
+  User -> ConfigCanvasWidget: drop(license_id, config_id)
+  ConfigCanvasWidget -> UIActions: assign_license(config_id, license_id)
+  UIActions -> ConfigService: assign_license(config_id, license_id)
+  ConfigService -> ConfigRepository: assign_license(config_id, license_id)
+  ConfigRepository -> ConfigRepository: get_license_owner(license_id)
+  alt already assigned
+    ConfigRepository --> ConfigService: ValueError
+    ConfigService --> UIActions: ValueError
+    UIActions --> ConfigCanvasWidget: log/toast "License already in use"
+  else assign ok
+    ConfigRepository --> ConfigService: ok
+    ConfigService --> UIActions: ok
+    UIActions --> ConfigCanvasWidget: refresh()
+  end
+end
+@enduml

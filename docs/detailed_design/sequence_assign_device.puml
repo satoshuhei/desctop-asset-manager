@@ -1,0 +1,33 @@
+@startuml
+!theme plain
+skinparam shadowing false
+
+actor User
+participant DevicePanel
+participant AssetService
+participant ConfigCanvasWidget
+participant UIActions
+participant ConfigService
+participant ConfigRepository
+
+User -> DevicePanel: startDrag(device_id)
+DevicePanel -> DevicePanel: in_use_ids check
+alt in-use
+  DevicePanel --> User: drag blocked
+else available
+  User -> ConfigCanvasWidget: drop(device_id, config_id)
+  ConfigCanvasWidget -> UIActions: assign_device(config_id, device_id, source_config_id?)
+  UIActions -> ConfigService: assign_device(config_id, device_id)
+  ConfigService -> ConfigRepository: assign_device(config_id, device_id)
+  ConfigRepository -> ConfigRepository: get_device_owner(device_id)
+  alt already assigned
+    ConfigRepository --> ConfigService: ValueError
+    ConfigService --> UIActions: ValueError
+    UIActions --> ConfigCanvasWidget: log/toast "Device already in use"
+  else assign ok
+    ConfigRepository --> ConfigService: ok
+    ConfigService --> UIActions: ok
+    UIActions --> ConfigCanvasWidget: refresh()
+  end
+end
+@enduml

@@ -1,0 +1,1 @@
+"""Desktop Asset Manager package."""
