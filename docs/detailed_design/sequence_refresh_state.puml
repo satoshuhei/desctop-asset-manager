@@ -1,0 +1,23 @@
+@startuml
+!theme plain
+skinparam shadowing false
+
+participant DesktopApp
+participant AssetPaletteWidget
+participant DevicePanel
+participant LicensePanel
+participant ConfigService
+
+DesktopApp -> AssetPaletteWidget: refresh()
+AssetPaletteWidget -> DevicePanel: refresh()
+DevicePanel -> ConfigService: list_assigned_device_ids()
+ConfigService --> DevicePanel: ids
+DevicePanel -> DevicePanel: update in_use_ids
+DevicePanel -> DevicePanel: render gray + disable drag
+
+AssetPaletteWidget -> LicensePanel: refresh()
+LicensePanel -> ConfigService: list_assigned_license_ids()
+ConfigService --> LicensePanel: ids
+LicensePanel -> LicensePanel: update in_use_ids
+LicensePanel -> LicensePanel: render gray + disable drag
+@enduml

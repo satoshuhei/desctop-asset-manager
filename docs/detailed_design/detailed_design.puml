@@ -1,0 +1,143 @@
+@startuml
+allowmixing
+!theme plain
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+title Detailed Design - Class & Responsibilities
+
+package "UI" {
+  class DesktopApp {
+    -asset_service: AssetService
+    -config_service: ConfigService
+    +_refresh_all(): void
+  }
+  class AssetPaletteWidget {
+    -service: AssetService
+    -config_service: ConfigService
+    +refresh(): void
+  }
+  class DevicePanel {
+    -in_use_ids: Set<int>
+    +refresh(): void
+    +_apply_filter(keyword: str): void
+  }
+  class LicensePanel {
+    -in_use_ids: Set<int>
+    +refresh(): void
+    +_apply_filter(keyword: str): void
+  }
+  class ConfigCanvasWidget {
+    -service: ConfigService
+    +refresh(): void
+    +_arrange_cards(mode: str, sort_key: str): void
+  }
+  class ConfigCardWidget {
+    +refresh(): void
+    +_handle_drop(asset_type: str, asset_id: int, source_config_id: int?): void
+  }
+  class UIActions {
+    +assign_device(config_id: int, device_id: int, source_config_id: int?): void
+    +assign_license(config_id: int, license_id: int): void
+    +unassign_device(config_id: int, device_id: int): void
+    +unassign_license(config_id: int, license_id: int): void
+  }
+  class LogPanel {
+    +append(message: str): void
+  }
+}
+
+package "Services" {
+  class AssetService {
+    +add_device(asset_no: str, display_name: str?, device_type: str, model: str, version: str, state: str, note: str): Device
+    +list_devices(): List<Device>
+    +add_license(license_no: str, name: str, license_key: str, state: str, note: str): License
+    +list_licenses(): List<License>
+  }
+  class ConfigService {
+    +create_config(name: str, note: str, config_no: str?): Configuration
+    +list_configs(): List<Configuration>
+    +rename_config(config_id: int, name: str): void
+    +assign_device(config_id: int, device_id: int): void
+    +unassign_device(config_id: int, device_id: int): void
+    +move_device(from_config_id: int, to_config_id: int, device_id: int): void
+    +assign_license(config_id: int, license_id: int): void
+    +unassign_license(config_id: int, license_id: int): void
+    +list_assigned_device_ids(): List<int>
+    +list_assigned_license_ids(): List<int>
+    +get_device_owner(device_id: int): int?
+    +get_license_owner(license_id: int): int?
+  }
+}
+
+package "Repositories" {
+  class DeviceRepository {
+    +create(asset_no: str, display_name: str?, device_type: str, model: str, version: str, state: str, note: str): Device
+    +list_all(): List<Device>
+    +get_by_id(device_id: int): Device
+  }
+  class LicenseRepository {
+    +create(license_no: str, name: str, license_key: str, state: str, note: str): License
+    +list_all(): List<License>
+    +get_by_id(license_id: int): License
+  }
+  class ConfigRepository {
+    +create(name: str, note: str, config_no: str?): Configuration
+    +list_all(): List<Configuration>
+    +rename(config_id: int, name: str): void
+    +list_devices(config_id: int): List<Device>
+    +list_licenses(config_id: int): List<License>
+    +assign_device(config_id: int, device_id: int): void
+    +unassign_device(config_id: int, device_id: int): void
+    +assign_license(config_id: int, license_id: int, note: str): void
+    +unassign_license(config_id: int, license_id: int): void
+    +list_assigned_device_ids(): List<int>
+    +list_assigned_license_ids(): List<int>
+    +get_device_owner(device_id: int): int?
+    +get_license_owner(license_id: int): int?
+  }
+}
+
+package "Domain" {
+  class Device
+  class License
+  class Configuration
+}
+
+database "SQLite" as DB
+
+DesktopApp --> AssetPaletteWidget
+DesktopApp --> ConfigCanvasWidget
+DesktopApp --> LogPanel
+ConfigCardWidget --> UIActions
+
+AssetPaletteWidget --> DevicePanel
+AssetPaletteWidget --> LicensePanel
+
+DevicePanel --> AssetService
+LicensePanel --> AssetService
+
+ConfigCanvasWidget --> ConfigService
+ConfigCardWidget --> ConfigService
+
+AssetService --> DeviceRepository
+AssetService --> LicenseRepository
+ConfigService --> ConfigRepository
+
+DeviceRepository --> DB
+LicenseRepository --> DB
+ConfigRepository --> DB
+
+note right of DevicePanel
+  In-use assets:
+  - gray text
+  - drag disabled
+  - tooltip
+end note
+
+note right of ConfigRepository
+  Enforces in-use constraint
+  via owner lookup helpers
+end note
+
+@enduml

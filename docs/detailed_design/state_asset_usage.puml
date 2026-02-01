@@ -1,0 +1,27 @@
+@startuml
+!theme plain
+skinparam shadowing false
+
+[*] --> Available
+Available --> InUse: assign_to_config
+InUse --> Available: unassign
+InUse --> InUse: reassign_same_config
+
+state Available {
+  [*] --> Idle
+}
+
+state InUse {
+  [*] --> Assigned
+}
+
+note right of Available
+  Not present in config_devices
+  or config_licenses
+end note
+
+note right of InUse
+  Present in mapping table
+  (derived in-use state)
+end note
+@enduml
